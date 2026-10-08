@@ -1,0 +1,23 @@
+# --- Claude Code / GSD tooling ---
+# GSD install (~14 MB, reinstallable via `npx @opengsd/gsd-core@latest --claude --local`)
+# and machine-local settings stay out of git; the project guide is versioned.
+.claude/*
+!.claude/CLAUDE.md
+
+# GSD research web-search cache (regenerable)
+.planning/research/.cache/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# --- macOS ---
+.DS_Store
