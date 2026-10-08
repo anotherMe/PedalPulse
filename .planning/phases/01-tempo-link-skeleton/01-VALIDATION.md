@@ -23,7 +23,7 @@ created: "2026-10-08"
 | **Framework** | pytest 8.x (Python side); headless sclang smoke test (SuperCollider side) |
 | **Config file** | none — Wave 0 installs pytest into `.venv` |
 | **Quick run command** | `.venv/bin/pytest python_app/tests/ -x -q` |
-| **Full suite command** | `.venv/bin/pytest python_app/tests/ -q` plus `QT_QPA_PLATFORM=offscreen /Applications/SuperCollider.app/Contents/MacOS/sclang supercollider/smoke_test.scd` |
+| **Full suite command** | `.venv/bin/pytest python_app/tests/ -q` plus `bash scripts/smoke_test.sh` (runs `/Applications/SuperCollider.app/Contents/MacOS/sclang -D supercollider/smoke_test.scd` headless; `QT_QPA_PLATFORM=offscreen` is deliberately NOT set — verified 2026-10-08 to abort sclang 3.14.1 on macOS with exit 134) |
 | **Estimated runtime** | ~5 seconds (pytest), ~20 seconds (headless sclang boot + smoke test) |
 
 ---
@@ -51,8 +51,8 @@ Requirement-level test map (from research, pending task assignment):
 | GUI-01 | Slider, entry and nudge buttons stay in sync | unit | `.venv/bin/pytest python_app/tests/test_sync.py -x` | ❌ W0 |
 | LINK-01 | Slider sends only on release; nudge/arrow sends debounced to one `/pp/bpm` after ~150 ms | unit (mocked socket) | `.venv/bin/pytest python_app/tests/test_osc_client.py -x` | ❌ W0 |
 | GUI-04 | Tk compatibility check exits non-zero with a clear message on incompatible Tk | unit (monkeypatched `TkVersion` / import) | `.venv/bin/pytest python_app/tests/test_tkcheck.py -x` | ❌ W0 |
-| ENG-04 | `main.scd` waits for boot, posts the OSC port, autostarts the loop | headless smoke test | `QT_QPA_PLATFORM=offscreen /Applications/SuperCollider.app/Contents/MacOS/sclang supercollider/smoke_test.scd` | ❌ W0 |
-| TEMPO-03 | Engine clamps raw out-of-range `/pp/bpm` to 60–180 | helper script + listening | `.venv/bin/python python_app/tests/send_raw_bpm.py 300` | ❌ W0 |
+| ENG-04 | `main.scd` waits for boot, posts the OSC port, autostarts the loop | headless smoke test | `bash scripts/smoke_test.sh` | ❌ W0 |
+| TEMPO-03 | Engine clamps raw out-of-range `/pp/bpm` to 60–180 | headless smoke test (raw sends via the `osc_client.py` CLI) + listening | `bash scripts/smoke_test.sh`; manual: `.venv/bin/python python_app/osc_client.py 300` | ❌ W0 |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -64,8 +64,8 @@ Requirement-level test map (from research, pending task assignment):
 - [ ] `python_app/tests/test_sync.py` — GUI-01 (slider/entry/nudge stay in sync)
 - [ ] `python_app/tests/test_osc_client.py` — LINK-01 (release-only send, debounce), mocked-socket pattern from `pythonosc/test/test_udp_client.py`
 - [ ] `python_app/tests/test_tkcheck.py` — GUI-04 (compatibility gate logic)
-- [ ] `python_app/tests/send_raw_bpm.py` — TEMPO-03 helper: sends raw out-of-range `/pp/bpm`, bypassing the GUI (D-08)
-- [ ] `supercollider/smoke_test.scd` — ENG-04 / D-18 headless boot and compile check
+- [ ] `python_app/osc_client.py` CLI (`python_app/osc_client.py BPM [BPM ...] [--port P]`) — TEMPO-03 helper: sends raw out-of-range `/pp/bpm`, bypassing the GUI (D-08); replaces the research-proposed `send_raw_bpm.py`
+- [ ] `supercollider/smoke_test.scd` + `scripts/smoke_test.sh` — ENG-04 / D-18 headless boot and engine-contract check
 - [ ] pytest installed in `.venv` (dev-only, e.g. `requirements-dev.txt`)
 
 ---
@@ -76,7 +76,7 @@ Requirement-level test map (from research, pending task assignment):
 |----------|-------------|------------|-------------------|
 | Master limiter holds peaks at the −1 dBFS ceiling under deliberately hot gain | ENG-02 | D-17: no automated limiter test required; judged on the SC level meter | Raise `~preGain` in `main.scd`, re-evaluate, watch the SC meter peaks stay at the ceiling with no clipping |
 | Loop audibly changes tempo when BPM is set from slider, entry or nudge buttons | GUI-01, LINK-01 | Audible musical result; tests cover logic, not sound | Run `main.scd` in the SC IDE, launch `./run.sh`, change BPM with each control, listen for the tempo change on the next beat |
-| Engine clamps out-of-range BPM | TEMPO-03 | Clamp is observed in the running engine's tempo/post window | Send `300` and `10` with `send_raw_bpm.py`; confirm the engine posts/plays at 180 and 60 |
+| Engine clamps out-of-range BPM | TEMPO-03 | Clamp is observed in the running engine's tempo/post window | Send `300` and `10` with `.venv/bin/python python_app/osc_client.py`; confirm the engine posts/plays at 180 and 60 |
 | Window opens normally under Tk 9.0.3 and the "On top" toggle floats it over Zwift | GUI-04, D-12 | Real window-manager behavior | Launch via `./run.sh`, toggle "On top", confirm it stays above a full-screen app |
 
 ---

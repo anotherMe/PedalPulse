@@ -30,7 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User sets BPM with the slider, the numeric entry, or the +/- nudge buttons (all three stay in sync), and the loop audibly changes tempo
   4. Dragging the BPM slider rapidly does not flood the engine (updates are throttled/coalesced and the final value always arrives), and BPM values outside 60–180 sent to the engine are clamped to that range
   5. All engine audio passes through a master limiter: with the loop's gain pushed deliberately hot, output peaks stay at the limiter ceiling with no clipping
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Engine walking skeleton: tracer (Python OscClient → /pp/bpm → OSCdef → TempoClock) + kick/hat/bass loop, limiter, clamp and the headless smoke-test contract (wave 1)
+- [ ] 01-02-PLAN.md — Launchable BPM window: pytest legitimacy gate, ./run.sh + Tk compatibility gate, slider (send on release) + debounced nudge buttons (wave 2)
+- [ ] 01-03-PLAN.md — Entry field + Up/Down/Shift shortcuts, all controls in sync, Tk 9 widget smoke test, end-to-end acceptance (wave 3)
 **UI hint**: yes
 
 ### Phase 2: Full Groove & Smooth Tempo

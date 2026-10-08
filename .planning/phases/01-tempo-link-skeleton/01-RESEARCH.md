@@ -449,17 +449,19 @@ See the eight numbered patterns under **Architecture Patterns** above — they a
 
 **Note:** No assumption here concerns package legitimacy, compliance, retention, or security posture — those categories were either verified directly (python-osc) or are not applicable to this phase (see Security Domain below).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact nudge-button value (±1/±5) interaction with the 150ms debounce window when the user clicks rapidly in succession**
    - What we know: D-21 specifies "a single `/pp/bpm` goes out after ~150ms with no further changes" — a cancel-and-reschedule `after()` pattern (Pattern 4) satisfies this.
    - What's unclear: Whether rapid alternating +1/-1 clicks within the window should coalesce to the *net* value (expected, and what the cancel-and-reschedule pattern naturally produces) or whether any intermediate value should ever be visible to the user before the send — not specified in `01-CONTEXT.md`.
    - Recommendation: Treat "net value after 150ms of inactivity" as correct (what Pattern 4 implements); flag to the user only if observed behavior during manual testing feels wrong.
+   - RESOLVED: Adopted as recommended. The display updates on every click; exactly one `/pp/bpm` carrying the net value goes out 150 ms after the last change (cancel-and-reschedule `Debouncer` in `python_app/bpm_logic.py`). Rapid +1/−1 that nets to no change still sends the net value once. A nudge that cannot change the value (at 60/180) sends nothing, and a slider release or entry Enter cancels any pending debounced send. Tested in Plan 01-02 Task 3 and Plan 01-03.
 
 2. **Whether `~clock.nextTimeOnGrid(1)` ever returns the *current* beat (zero-wait) if the OSC message happens to arrive exactly on a beat boundary, causing an apparent "double application" if a second message arrives in the same beat**
    - What we know: `nextTimeOnGrid` is documented to return "the next whole beat" `[CITED: doc.sccode.org/Classes/TempoClock.html]`.
    - What's unclear: Edge-case behavior at exact beat boundaries wasn't tested by executing SC code in this research session (no SC audio session was run).
    - Recommendation: Not a planning blocker — D-14's debounce on the Python side (Pattern 4) means messages won't arrive dense enough in practice for this edge case to matter in Phase 1; worth a one-line comment in the code, not a dedicated task.
+   - RESOLVED: Made moot by design rather than left to send-side debounce. `nextTimeOnGrid(1)` returns the current beat when called exactly on a beat (verified in the installed `Clock.sc`: `roundUp(referenceBeat - baseBarBeat - phase, quant) + ...`), which is still a valid beat boundary. `OSCdef(\pp_bpm)` keeps a single pending apply (`~ppApplyScheduled`) that reads the latest `~ppPendingBpm` when it fires. Any number of messages within one beat therefore produce exactly one tempo change, to the latest value. The flag is reset when `main.scd` is re-evaluated, so it can never wedge. Verified by the smoke test's `latest wins` and `re-evaluation` checks (Plan 01-01 Task 2).
 
 ## Environment Availability
 
