@@ -20,6 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Tempo Link Skeleton
+
 **Goal:** As a rider, I want to set BPM in the app and hear the engine loop change tempo, so that I know the control chain works.
 **Mode:** mvp
 **Depends on:** Nothing (first phase)
@@ -30,15 +31,23 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User sets BPM with the slider, the numeric entry, or the +/- nudge buttons (all three stay in sync), and the loop audibly changes tempo
   4. Dragging the BPM slider rapidly does not flood the engine (updates are throttled/coalesced and the final value always arrives), and BPM values outside 60–180 sent to the engine are clamped to that range
   5. All engine audio passes through a master limiter: with the loop's gain pushed deliberately hot, output peaks stay at the limiter ceiling with no clipping
+
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
 - [ ] 01-01-PLAN.md — Engine walking skeleton: tracer (Python OscClient → /pp/bpm → OSCdef → TempoClock) + kick/hat/bass loop, limiter, clamp and the headless smoke-test contract (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-02-PLAN.md — Launchable BPM window: pytest legitimacy gate, ./run.sh + Tk compatibility gate, slider (send on release) + debounced nudge buttons (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-03-PLAN.md — Entry field + Up/Down/Shift shortcuts, all controls in sync, Tk 9 widget smoke test, end-to-end acceptance (wave 3)
+
 **UI hint**: yes
 
 ### Phase 2: Full Groove & Smooth Tempo
+
 **Goal:** As a rider, I want to start, stop and retempo a full trance groove from the app, so that tempo changes never jolt my ride.
 **Mode:** mvp
 **Depends on:** Phase 1
@@ -48,10 +57,12 @@ Plans:
   2. When the user sets a new BPM, the music glides to it over roughly 1–2 bars, starting on a beat boundary, with no audible jolt and every layer staying in time
   3. When the user changes BPM again mid-glide, the music retargets from its current tempo without restarting or jumping
   4. User presses Stop in the app and the music stops cleanly (no hanging notes); pressing Start brings the full groove back in time
+
 **Plans:** TBD
 **UI hint**: yes
 
 ### Phase 3: EPIC Zones & Volume
+
 **Goal:** As a rider, I want to pick my effort zone and set the volume, so that the music's energy matches my interval without clipping.
 **Mode:** mvp
 **Depends on:** Phase 2
@@ -61,10 +72,12 @@ Plans:
   2. Moving up the zones makes the music audibly brighter and more energetic, with filter cutoff, drive/saturation, reverb/delay amount and synth richness all moving together
   3. Switching zones glides smoothly to the new energy level with no stepping, zipper noise or clicks
   4. User adjusts master volume from the app and loudness changes smoothly; with VO2 selected and volume at maximum, the output still never clips
+
 **Plans:** TBD
 **UI hint**: yes
 
 ### Phase 4: Live Feedback & Ride Endurance
+
 **Goal:** As a rider, I want to see the engine is alive and what it is actually playing, so that I can trust it through a full ride.
 **Mode:** mvp
 **Depends on:** Phase 3
@@ -74,6 +87,7 @@ Plans:
   2. The GUI shows the engine's actual current BPM, updating live through a tempo glide (mid-ramp values visible), and the current EPIC level as reported by the engine
   3. The GUI stays responsive while engine status streams in, with no freezes or crashes from status traffic
   4. User leaves the engine playing for 60+ minutes (with BPM and zone changes along the way, alongside Zwift) without audio dropouts, and the server's synth node count and CPU load stay flat
+
 **Plans:** TBD
 **UI hint**: yes
 
