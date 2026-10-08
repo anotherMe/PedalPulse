@@ -17,15 +17,17 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 ### Active
 
 - [ ] SuperCollider engine generates continuous melodic techno / progressive trance: drums, bass, arpeggios, pads
-- [ ] Music is generative/evolving (chord changes, arp variations) so it doesn't feel like a fixed loop over a long session
-- [ ] Engine runs on a dedicated TempoClock driven by a BPM value
-- [ ] BPM changes ramp smoothly over a few bars (no audible jolt)
-- [ ] EPIC level (continuous 0–100) maps to brightness/energy: filter cutoff, drive, reverb/delay amount, synth richness
+- [ ] Engine runs on a dedicated TempoClock driven by a BPM value (fixed loop patterns acceptable for v1)
+- [ ] Master limiter and long-session stability (60+ min without node/CPU growth)
+- [ ] BPM changes ramp smoothly over a few bars (no audible jolt), retargeting safely mid-ramp, clamped to 60–180
+- [ ] EPIC level (0–100) maps to brightness/energy: filter cutoff, drive, reverb/delay amount, synth richness — with smoothed (lagged) changes
 - [ ] Engine listens for OSC messages (e.g. `/bpm <value>`, `/epic <value>`) via OSCdef
 - [ ] Tkinter GUI with a BPM control (slider + numeric input)
-- [ ] Tkinter GUI with EPIC control: named preset level buttons (e.g. Recovery / Endurance / Tempo / Threshold / VO2) plus a fine-tune slider
+- [ ] Tkinter GUI with EPIC control: named zone preset buttons (Recovery / Endurance / Tempo / Threshold / VO2)
 - [ ] GUI sends control changes to SuperCollider in real time over OSC
 - [ ] Basic transport/volume control from the GUI (start/stop music, master volume)
+- [ ] Connection indicator in the GUI driven by an engine heartbeat (UDP OSC fails silently otherwise)
+- [ ] GUI displays the engine's actual current BPM (mid-ramp) and EPIC
 
 ### Out of Scope
 
@@ -33,7 +35,9 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 - Automatic cadence → BPM mapping from sensors (ANT+/BLE cadence sensors, trainers) — v1 sets BPM manually
 - Workout file playback (.zwo timelines driving BPM/EPIC automatically) — v1 is manual live control; good future candidate
 - Python app launching/managing sclang — user starts the SuperCollider patch separately
-- Multiple tracks / sub-styles selection — one generative style is enough for v1
+- Generative evolution (shared harmony clock, multi-timescale variation) — v1 is a tech proof; fixed loop is acceptable, deferred to v2
+- EPIC fine-tune slider — presets only in v1, deferred to v2
+- Multiple tracks / sub-styles selection — one style is enough for v1
 - Layer density / builds & drops / harmonic mood driven by EPIC — v1 EPIC means brightness/energy; others are later enrichment
 - Mobile / web control UI — Tkinter desktop app on the same Mac
 
@@ -42,7 +46,8 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 - Use case: home cycling on Zwift, rider listens to music during structured workouts and wants the music to follow the workout's demanded cadence and effort. The rider adjusts controls by hand between intervals.
 - User's design sketch (pasted during init): scsynth for low-latency audio with SynthDefs for drums, bass, melodic synths and FX (delay, reverb, filter); sclang as "musical core" using TempoClock, Pbind/Pdef/Prand/Pseq/Pfunc/Pchain/Ptpar; "scenes"/intensity levels (warm-up, steady, push, cool-down); an external control app sending OSC (`/bpm <value>`) received via OSCdef; an optional "musical direction" layer mapping intensity to scenes, density and filter/energy parameters.
 - BPM is set directly by the user (not derived from cadence mathematically) — the user chooses a tempo that "feels like" the required cadence.
-- Success bar for v1 is a technical proof: Python → OSC → SuperCollider works, and BPM and EPIC audibly change the sound. Musical polish is secondary but the music should still be generative rather than a static loop.
+- Success bar for v1 is a technical proof: Python → OSC → SuperCollider works, and BPM and EPIC audibly change the sound. Musical polish and generative evolution are deferred to v2 (decided during requirements scoping); a fixed loop is acceptable for v1.
+- Research (.planning/research/) recommends: SC 3.14.x with stock classes, Python 3.12/3.13 with Tcl/Tk 8.6 (avoid Homebrew tcl-tk 9.0), python-osc; conductor state layer in sclang; beat-synchronous tempo-ramp routine; EPIC via lagged control buses; heartbeat for connection status.
 - The README lists brainstormed app names; "PedalPulse" is the working name (folder name).
 
 ## Constraints
@@ -59,7 +64,9 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 |----------|-----------|---------|
 | Manual BPM setting instead of cadence→BPM formula | User wants direct control; cadence mapping can come later | — Pending |
 | EPIC = brightness/energy (filters, drive, FX) for v1 | Most direct, audible mapping; density/harmony/builds deferred | — Pending |
-| EPIC control = preset buttons + fine-tune slider | Quick hits between intervals plus fine control | — Pending |
+| EPIC control = zone preset buttons only in v1 | Quick hits between intervals; fine-tune slider deferred to v2 | — Pending |
+| Fixed loop music for v1, generative evolution in v2 | v1 is a tech proof of the control chain | — Pending |
+| Add heartbeat-based connection indicator | Research: UDP OSC fails silently | — Pending |
 | Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | — Pending |
 | Tkinter for GUI | User preference, zero extra deps | — Pending |
 | Start SC and Python separately | Simpler; avoids process management in v1 | — Pending |
@@ -83,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-08 after initialization*
+*Last updated: 2026-10-08 after requirements scoping*
