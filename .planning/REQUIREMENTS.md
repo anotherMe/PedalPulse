@@ -10,15 +10,15 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 ### Engine
 
 - [ ] **ENG-01**: When started, the engine plays drums, bass, arpeggio and pad continuously in a melodic techno / progressive trance style on a dedicated TempoClock (fixed loop patterns are acceptable for v1)
-- [ ] **ENG-02**: Master output never clips — a limiter on the master bus holds peaks even at maximum EPIC and volume
+- [x] **ENG-02**: Master output never clips — a limiter on the master bus holds peaks even at maximum EPIC and volume
 - [ ] **ENG-03**: User can leave the engine playing for 60+ minutes without audio dropouts and without CPU or synth node count growing (every enveloped synth frees itself)
-- [ ] **ENG-04**: User starts the engine from a single sclang entry file, which waits for server boot and posts the OSC port it is listening on
+- [x] **ENG-04**: User starts the engine from a single sclang entry file, which waits for server boot and posts the OSC port it is listening on
 
 ### Tempo
 
 - [ ] **TEMPO-01**: When the user sets a new BPM, the music glides to it over ~1–2 bars, beat-synchronously, with no audible jolt
 - [ ] **TEMPO-02**: When the user changes BPM while a ramp is in progress, the engine retargets smoothly from the current tempo (no restart, no jump)
-- [ ] **TEMPO-03**: BPM values outside 60–180 are clamped to that range by the engine
+- [x] **TEMPO-03**: BPM values outside 60–180 are clamped to that range by the engine
 
 ### EPIC
 
@@ -83,12 +83,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | ENG-01 | Phase 2 | Pending |
-| ENG-02 | Phase 1 | Pending |
+| ENG-02 | Phase 1 | Complete |
 | ENG-03 | Phase 4 | Pending |
-| ENG-04 | Phase 1 | Pending |
+| ENG-04 | Phase 1 | Complete |
 | TEMPO-01 | Phase 2 | Pending |
 | TEMPO-02 | Phase 2 | Pending |
-| TEMPO-03 | Phase 1 | Pending |
+| TEMPO-03 | Phase 1 | Complete |
 | EPIC-01 | Phase 3 | Pending |
 | EPIC-02 | Phase 3 | Pending |
 | EPIC-03 | Phase 3 | Pending |
