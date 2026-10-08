@@ -17,11 +17,43 @@ s.options.numOutputBusChannels = 2;
 // s.latency left at its default (Pitfall 3).
 
 s.waitForBoot({
+	// --- Idempotent re-evaluation (D-17 workflow: edit ~preGain, re-evaluate) ---
+	// Replace, never stack: stop the previous patterns/clock and free the
+	// previous nodes/bus before building anything new.
+	Pbindef(\ppKick).stop;
+	Pbindef(\ppHat).stop;
+	Pbindef(\ppBass).stop;
+	if (~clock.notNil) { ~clock.stop };
+	// Wait out s.latency: a note-on just before .stop may already be sent as
+	// a timestamped OSC bundle for the near future. Free too soon and that
+	// bundle lands on an already-freed group ("Group N not found").
+	0.3.wait;
+	if (~ppMasterSynth.notNil) { ~ppMasterSynth.free };
+	if (~ppMasterGroup.notNil) { ~ppMasterGroup.free };
+	if (~ppInstrGroup.notNil) { ~ppInstrGroup.free };
+	if (~ppMixBus.notNil) { ~ppMixBus.free };
+	~ppApplyScheduled = false;  // a pending apply on the stopped clock can never wedge later messages
+
 	SynthDef(\ppKick, { |out = 0, amp = 0.5|
 		var sig, env;
 		env = EnvGen.kr(Env.perc(0.001, 0.35), doneAction: 2);
 		sig = SinOsc.ar(XLine.kr(150, 50, 0.3)) * env * amp;
 		Out.ar(out, sig ! 2);
+	}).add;
+
+	SynthDef(\ppHat, { |out = 0, amp = 0.15|
+		var sig, env;
+		env = EnvGen.kr(Env.perc(0.001, 0.12), doneAction: 2);
+		sig = HPF.ar(WhiteNoise.ar(), 7000) * env * amp;
+		Out.ar(out, sig ! 2);
+	}).add;
+
+	SynthDef(\ppBass, { |out = 0, amp = 0.25, freq = 55, gate = 1|
+		var sig, env;
+		env = EnvGen.kr(Env.adsr(0.005, 0.1, 0.6, 0.05), gate, doneAction: 2);
+		sig = Saw.ar([freq, freq * 1.01]);  // detuned pair -> stereo
+		sig = RLPF.ar(sig, 700, 0.6);
+		Out.ar(out, sig * env * amp);
 	}).add;
 
 	SynthDef(\ppMaster, { |in, out = 0, preGain = 1|
@@ -50,6 +82,28 @@ s.waitForBoot({
 		\group, ~ppInstrGroup,
 	);
 	Pbindef(\ppKick).play(~clock, quant: 4);  // D-15: autostarted, four on the floor
+
+	Pbindef(\ppHat,
+		\instrument, \ppHat,
+		\dur, 1,
+		\timingOffset, 0.5,  // offbeat 8th: the "and" of each beat
+		\out, ~ppMixBus,
+		\group, ~ppInstrGroup,
+	);
+	Pbindef(\ppHat).play(~clock, quant: 4);
+
+	Pbindef(\ppBass,
+		\instrument, \ppBass,
+		\dur, 0.5,  // 8th-note grid
+		// A minor root (MIDI 33 = A1) on the offbeat 8th of beats 1-3;
+		// MIDI 36 (C2) on the offbeat 8th of beat 4 -- the note change at
+		// the bar end. Downbeat 8ths rest.
+		\midinote, Pseq([\rest, 33, \rest, 33, \rest, 33, \rest, 36], inf),
+		\legato, 0.8,
+		\out, ~ppMixBus,
+		\group, ~ppInstrGroup,
+	);
+	Pbindef(\ppBass).play(~clock, quant: 4);
 
 	// --- OSC control: /pp/bpm <float> ---
 	// Loopback-only (T-01-02): a nil port matches any port from 127.0.0.1,
