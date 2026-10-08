@@ -82,13 +82,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (filled by roadmap) | | |
+| ENG-01 | Phase 2 | Pending |
+| ENG-02 | Phase 1 | Pending |
+| ENG-03 | Phase 4 | Pending |
+| ENG-04 | Phase 1 | Pending |
+| TEMPO-01 | Phase 2 | Pending |
+| TEMPO-02 | Phase 2 | Pending |
+| TEMPO-03 | Phase 1 | Pending |
+| EPIC-01 | Phase 3 | Pending |
+| EPIC-02 | Phase 3 | Pending |
+| EPIC-03 | Phase 3 | Pending |
+| GUI-01 | Phase 1 | Pending |
+| GUI-02 | Phase 2 | Pending |
+| GUI-03 | Phase 3 | Pending |
+| GUI-04 | Phase 1 | Pending |
+| LINK-01 | Phase 1 | Pending |
+| LINK-02 | Phase 4 | Pending |
+| LINK-03 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-08*
-*Last updated: 2026-10-08 after initial definition*
+*Last updated: 2026-10-08 after roadmap creation (traceability filled)*
