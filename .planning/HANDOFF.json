@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-10-09T21:46:03.164Z",
+  "phase": "4",
+  "phase_name": "Live Feedback & Ride Endurance",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Phase 03 UAT (3 listening tests: EPIC zones brightness, zone glide smoothness, volume slider + VO2 no-clip)", "status": "done", "commit": "0b1b819"},
+    {"id": 2, "name": "Phase 03 verification canonicalized to passed, phase marked complete, PROJECT.md/STATE.md evolved", "status": "done", "commit": "5b0c334"}
+  ],
+  "remaining_tasks": [
+    {"id": 3, "name": "Optional: fix Phase 03 open code-review findings (WR-01 Debouncer token tracking, WR-02 CLI prints 'sent' on failed send, IN-01, IN-02)", "status": "not_started"},
+    {"id": 4, "name": "Discuss Phase 4 (no CONTEXT.md yet)", "status": "not_started"},
+    {"id": 5, "name": "Plan and execute Phase 4 (ENG-03, LINK-02, LINK-03)", "status": "not_started"}
+  ],
+  "blockers": [],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Phase 4 success criterion 4 needs a live 60+ minute soak alongside Zwift (node count and CPU flat, no dropouts)", "context": "Can only be verified by the user on the real machine; scheduled for Phase 4 UAT", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "EPIC = /pp/epic -> one raw bus -> one Lag.kr smoother (1.5 s) -> one \\ppFx synth deriving drive/cutoff/richness/reverb", "rationale": "All parameters move in lockstep by construction; UAT confirmed smooth glides", "phase": "03"},
+    {"decision": "Volume = /pp/volume, 0.2 s lagged squared-taper gain inside \\ppMaster before Limiter.ar; GUI sends on release, launch sends 80", "rationale": "Never bypass the limiter; perceptually even steps; UAT confirmed no clipping at VO2 + 100", "phase": "03"},
+    {"decision": "Stopped after transition instead of auto-chaining to discuss-phase 4 despite yolo mode", "rationale": "verify-work presents next steps; user chooses", "phase": "03"}
+  ],
+  "uncommitted_files": [
+    " M .planning/config.json",
+    "?? .planning/state.json",
+    "?? .planning/ui-reviews/"
+  ],
+  "next_action": "Run /gsd-discuss-phase 4 (or /gsd-code-review 03 --fix first to clear the 4 open Phase 03 findings)",
+  "context_notes": "Milestone v1 is 3/4 phases done, 11/11 planned plans executed. Phase 4 adds an engine heartbeat -> GUI connection indicator (needs a Python OSC server thread listening on a second port, e.g. 57121), live engine BPM/EPIC display mid-glide, and a 60-minute stability soak. The uncommitted files predate this session: config.json only gained workflow._auto_chain_active=false; state.json and ui-reviews/ are GSD-tool artifacts left untracked."
+}
