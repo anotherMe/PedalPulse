@@ -1,9 +1,9 @@
-"""Tk widgets for the PedalPulse control app (GUI-01, GUI-02, EPIC-03, D-06,
-D-12).
+"""Tk widgets for the PedalPulse control app (GUI-01, GUI-02, GUI-03,
+EPIC-03, D-06, D-12).
 
 No OSC import here (D-24) -- this module only builds and wires Tk widgets
-to a BpmController/PlayController/EpicController; it never talks to the
-network directly.
+to a BpmController/PlayController/EpicController/VolumeController; it
+never talks to the network directly.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 import config
-from bpm_logic import BpmController, EpicController, PlayController
+from bpm_logic import BpmController, EpicController, PlayController, VolumeController
 
 # D-06 layout: −5 −1 [value] +1 +5. The minus sign is U+2212 MINUS SIGN,
 # not an ASCII hyphen.
@@ -23,7 +23,8 @@ PLAY_LABELS = {True: "Stop", False: "Start"}
 
 
 class BpmWindow:
-    """Compact window: BPM slider, nudge row, zone row, status line, On top toggle."""
+    """Compact window: BPM slider, nudge row, zone row, transport row,
+    volume row, status line, On top toggle."""
 
     def __init__(
         self,
@@ -33,11 +34,13 @@ class BpmWindow:
         *,
         play_controller: PlayController,
         epic_controller: EpicController,
+        volume_controller: VolumeController,
     ) -> None:
         self.root = root
         self.controller = controller
         self.play_controller = play_controller
         self.epic_controller = epic_controller
+        self.volume_controller = volume_controller
 
         root.title("PedalPulse")
         root.resizable(False, False)
@@ -139,6 +142,8 @@ class BpmWindow:
 
         play_controller.add_listener(self._on_playing_changed)
 
+        self._build_volume_row(container, volume_controller)
+
         self.status_label = tk.Label(container, text=status_text)
         self.status_label.pack(pady=(4, 0))
 
@@ -207,6 +212,42 @@ class BpmWindow:
             else:
                 button.configure(font=self.zone_font, relief="raised")
         self.zone_label["text"] = f"Zone: {zone}"
+
+    def _build_volume_row(self, container: tk.Frame, volume_controller: VolumeController) -> None:
+        """Build the master volume Scale (GUI-03).
+
+        takefocus=0 keeps the root arrow-key shortcuts on BPM, and Scale's
+        own arrow-key bindings could otherwise change the volume without a
+        release send (same reasoning as the BPM Scale). There are no
+        nudge buttons and no entry for volume -- GUI-03 asks only to
+        adjust master volume from a slider.
+        """
+        self.volume_row = tk.Frame(container, pady=8)
+        self.volume_row.pack()
+
+        self.volume_var = tk.IntVar(value=volume_controller.value)
+
+        self.volume_scale = tk.Scale(
+            self.volume_row,
+            from_=config.VOLUME_MIN,
+            to=config.VOLUME_MAX,
+            orient="horizontal",
+            resolution=1,
+            length=320,
+            label="Volume",
+            variable=self.volume_var,
+            command=volume_controller.slider_moved,
+            takefocus=0,
+        )
+        self.volume_scale.pack(fill="x")
+        self.volume_scale.bind(
+            "<ButtonRelease-1>", lambda _event: volume_controller.slider_released()
+        )
+
+        volume_controller.add_listener(self._on_volume_changed)
+
+    def _on_volume_changed(self, value: int) -> None:
+        self.volume_var.set(value)
 
     def _toggle_on_top(self) -> None:
         self.root.attributes("-topmost", self.on_top_var.get())

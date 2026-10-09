@@ -1,5 +1,6 @@
-"""Pure BPM, transport (play/stop) and EPIC zone state + send policy for the
-PedalPulse control app (GUI-01, GUI-02, EPIC-03, LINK-01).
+"""Pure BPM, transport (play/stop), EPIC zone and master volume state + send
+policy for the PedalPulse control app (GUI-01, GUI-02, GUI-03, EPIC-03,
+LINK-01).
 
 No tkinter import -- this module stays unit-testable without a display and
 is driven by injected schedule/cancel callables (Tk's root.after /
@@ -285,3 +286,67 @@ class EpicController:
     def send_initial(self) -> None:
         """Send the current zone's value once, unconditionally, without notifying (D-23)."""
         self._send(float(self._zones[self._zone]))
+
+
+def clamp_volume(value: float) -> int:
+    """Round half up to the nearest int, then clamp to [VOLUME_MIN, VOLUME_MAX].
+
+    A copy of clamp_bpm's contract (RESEARCH Gray Areas: sibling over
+    refactor, Phase 2 precedent) -- not a generalisation of it. Raises
+    ValueError if value is not finite (NaN or +/-inf).
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"clamp_volume: value must be finite, got {value!r}")
+    rounded = int(math.floor(value + 0.5))
+    return max(config.VOLUME_MIN, min(config.VOLUME_MAX, rounded))
+
+
+class VolumeController:
+    """Tracks the master volume and decides when to send it over OSC (GUI-03).
+
+    Mirrors BpmController's slider half: live update while dragging, one
+    send on release (D-20, so a drag never floods the engine), send_initial
+    at launch. There are no nudge buttons and no entry field for volume --
+    GUI-03 asks only to adjust master volume from a slider.
+    """
+
+    def __init__(
+        self,
+        send: Callable[[float], object],
+        initial: int = config.VOLUME_DEFAULT,
+    ) -> None:
+        self._send = send
+        self._value = clamp_volume(initial)
+        self._listeners: list[Callable[[int], None]] = []
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    def add_listener(self, fn: Callable[[int], None]) -> None:
+        self._listeners.append(fn)
+
+    def _notify(self) -> None:
+        for listener in self._listeners:
+            listener(self._value)
+
+    def _set(self, new_value: int) -> bool:
+        """Update the value and notify listeners only on an actual change."""
+        if new_value == self._value:
+            return False
+        self._value = new_value
+        self._notify()
+        return True
+
+    def slider_moved(self, raw: str | float) -> None:
+        """Live update while dragging. Never sends (D-20)."""
+        new_value = clamp_volume(float(raw))
+        self._set(new_value)
+
+    def slider_released(self) -> None:
+        """Send the current value now, even if unchanged since the last send."""
+        self._send(float(self._value))
+
+    def send_initial(self) -> None:
+        """Send the current value once, unconditionally, without notifying (D-23)."""
+        self._send(float(self._value))
