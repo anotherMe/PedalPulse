@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import time
 import tkinter as tk
+import tkinter.font as tkfont
+import types
 
 import pytest
 
-from bpm_logic import BpmController, PlayController
+import config
+from bpm_logic import BpmController, EpicController, PlayController
 from view import BpmWindow
 
 
@@ -60,13 +63,28 @@ def tk_root():
     root.destroy()
 
 
-def _build_window(root: tk.Tk, status_text: str):
+def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
     sent: list[float] = []
     controller = BpmController(send=sent.append, schedule=root.after, cancel=root.after_cancel)
     play_sent: list[int] = []
     play = PlayController(send=play_sent.append)
-    window = BpmWindow(root, controller, status_text, play_controller=play)
-    return window, controller, sent, play, play_sent
+    epic_sent: list[float] = []
+    epic = EpicController(send=epic_sent.append)
+    window = BpmWindow(root, controller, status_text, play_controller=play, epic_controller=epic)
+    return types.SimpleNamespace(
+        window=window,
+        controller=controller,
+        sent=sent,
+        play=play,
+        play_sent=play_sent,
+        epic=epic,
+        epic_sent=epic_sent,
+    )
+
+
+def _build_window(root: tk.Tk, status_text: str):
+    all_ = _build_all(root, status_text)
+    return all_.window, all_.controller, all_.sent, all_.play, all_.play_sent
 
 
 def _make_window(root: tk.Tk, status_text: str = "Sending to test:1"):
@@ -255,3 +273,116 @@ def test_play_button_takes_no_focus(tk_root):
 
     assert controller.value == before + 1
     assert sent == [float(before + 1)]
+
+
+# --- 10. Zone buttons (EPIC-03) and WR-01 arrow-key entry guard -------------
+
+
+def test_zone_row_builds_in_order_with_recovery_selected(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+
+    assert list(window.zone_buttons) == list(config.EPIC_ZONES)
+    assert list(window.zone_row.pack_slaves()) == [
+        window.zone_buttons[name] for name in config.EPIC_ZONES
+    ]
+    for button in window.zone_buttons.values():
+        assert str(button["takefocus"]) == "0"
+
+    recovery = window.zone_buttons["Recovery"]
+    recovery_weight = tkfont.Font(root=tk_root, font=recovery.cget("font")).actual("weight")
+    assert recovery_weight == "bold"
+    assert recovery["relief"] == "sunken"
+
+    for name, button in window.zone_buttons.items():
+        if name == "Recovery":
+            continue
+        weight = tkfont.Font(root=tk_root, font=button.cget("font")).actual("weight")
+        assert weight == "normal"
+        assert button["relief"] == "raised"
+
+    assert window.zone_label["text"] == "Zone: Recovery"
+    assert all_.epic_sent == []
+
+
+def test_zone_click_highlights_and_sends_once(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+
+    window.zone_buttons["Tempo"].invoke()
+
+    assert all_.epic_sent == [50.0]
+    tempo_weight = tkfont.Font(root=tk_root, font=window.zone_buttons["Tempo"].cget("font")).actual(
+        "weight"
+    )
+    assert tempo_weight == "bold"
+    assert window.zone_buttons["Tempo"]["relief"] == "sunken"
+    recovery_weight = tkfont.Font(
+        root=tk_root, font=window.zone_buttons["Recovery"].cget("font")
+    ).actual("weight")
+    assert recovery_weight == "normal"
+    assert window.zone_buttons["Recovery"]["relief"] == "raised"
+    assert window.zone_label["text"] == "Zone: Tempo"
+
+    window.zone_buttons["Tempo"].invoke()
+    assert all_.epic_sent == [50.0]
+
+    window.zone_buttons["VO2"].invoke()
+    assert all_.epic_sent == [50.0, 100.0]
+
+
+def test_each_zone_button_sends_its_preset(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+
+    for name in ("Endurance", "Tempo", "Threshold", "VO2"):
+        window.zone_buttons[name].invoke()
+
+    assert all_.epic_sent == [30.0, 50.0, 75.0, 100.0]
+
+
+def test_arrow_keys_do_not_nudge_while_entry_focused(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+    controller = all_.controller
+    sent = all_.sent
+
+    window.entry.focus_force()
+    pump(tk_root, 100)
+    assert tk_root.focus_get() is window.entry
+
+    window.entry_var.set("17")
+    tk_root.event_generate("<Up>")
+    tk_root.event_generate("<Shift-Down>")
+    pump(tk_root, 300)
+
+    assert controller.value == 120
+    assert window.entry_var.get() == "17"
+    assert sent == []
+
+    # Positive control: move focus away from the entry (committing an
+    # unchanged, unsent value) and confirm the same key now nudges BPM.
+    window.entry_var.set("120")
+    tk_root.focus_force()
+    pump(tk_root, 100)
+    tk_root.event_generate("<Up>")
+    pump(tk_root, 300)
+
+    assert controller.value == 121
+    assert sent == [121.0]
+
+
+def test_zone_click_keeps_arrow_shortcuts_on_bpm(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+    controller = all_.controller
+
+    window.zone_buttons["Threshold"].invoke()
+    tk_root.focus_force()
+    pump(tk_root, 100)
+    tk_root.event_generate("<Up>")
+    pump(tk_root, 300)
+
+    assert controller.value == 121
+    assert all_.sent == [121.0]
+    assert all_.epic_sent == [75.0]

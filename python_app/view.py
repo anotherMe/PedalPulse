@@ -1,15 +1,18 @@
-"""Tk widgets for the PedalPulse control app (GUI-01, GUI-02, D-06, D-12).
+"""Tk widgets for the PedalPulse control app (GUI-01, GUI-02, EPIC-03, D-06,
+D-12).
 
 No OSC import here (D-24) -- this module only builds and wires Tk widgets
-to a BpmController/PlayController; it never talks to the network directly.
+to a BpmController/PlayController/EpicController; it never talks to the
+network directly.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
+import tkinter.font as tkfont
 
 import config
-from bpm_logic import BpmController, PlayController
+from bpm_logic import BpmController, EpicController, PlayController
 
 # D-06 layout: −5 −1 [value] +1 +5. The minus sign is U+2212 MINUS SIGN,
 # not an ASCII hyphen.
@@ -20,7 +23,7 @@ PLAY_LABELS = {True: "Stop", False: "Start"}
 
 
 class BpmWindow:
-    """Compact window: BPM slider, nudge row, status line, On top toggle."""
+    """Compact window: BPM slider, nudge row, zone row, status line, On top toggle."""
 
     def __init__(
         self,
@@ -29,10 +32,12 @@ class BpmWindow:
         status_text: str,
         *,
         play_controller: PlayController,
+        epic_controller: EpicController,
     ) -> None:
         self.root = root
         self.controller = controller
         self.play_controller = play_controller
+        self.epic_controller = epic_controller
 
         root.title("PedalPulse")
         root.resizable(False, False)
@@ -97,6 +102,17 @@ class BpmWindow:
         self.entry.bind("<KP_Enter>", lambda _event: self.commit_entry(force=True))
         self.entry.bind("<FocusOut>", lambda _event: self.commit_entry(force=False))
 
+        # WR-01 (Phase 1 review): the entry gets its own bindings for the
+        # four arrow sequences, returning "break" and doing nothing else.
+        # Tk delivers key events to the focus widget and runs the entry's
+        # own binding before the root-level nudge binding below, so arrow
+        # keys typed into the entry neither nudge BPM nor overwrite the
+        # typed text.
+        self.entry.bind("<Up>", lambda _event: "break")
+        self.entry.bind("<Down>", lambda _event: "break")
+        self.entry.bind("<Shift-Up>", lambda _event: "break")
+        self.entry.bind("<Shift-Down>", lambda _event: "break")
+
         for delta in (1, 5):
             button = tk.Button(
                 self.nudge_row,
@@ -107,7 +123,9 @@ class BpmWindow:
             button.pack(side="left", padx=4)
             self.nudge_buttons[delta] = button
 
-        self.transport_row = tk.Frame(container, pady=4)
+        self._build_zone_row(container, epic_controller)
+
+        self.transport_row = tk.Frame(container, pady=8)
         self.transport_row.pack()
 
         self.play_button = tk.Button(
@@ -133,16 +151,62 @@ class BpmWindow:
         )
         self.on_top_check.pack(pady=(4, 0))
 
-        # D-11: Up/Down +-1, Shift+Up/Down +-5, while the window has focus.
-        # Bound on root (not the Scale, which keeps takefocus=0) so the
-        # shortcuts fire for every widget in the window. Held keys
-        # auto-repeat into nudge(); the controller's debounce coalesces them.
+        # D-11: Up/Down +-1, Shift+Up/Down +-5, while keyboard focus is
+        # anywhere except the BPM entry (WR-01 fix above gives the entry
+        # its own "break" bindings so these root-level shortcuts never
+        # fire while the rider is typing). Bound on root (not the Scale,
+        # which keeps takefocus=0) so the shortcuts fire for every other
+        # widget in the window, including right after a zone click (zone
+        # buttons take no focus). Held keys auto-repeat into nudge(); the
+        # controller's debounce coalesces them.
         self.root.bind("<Up>", lambda _event: self.handle_nudge_key(1))
         self.root.bind("<Down>", lambda _event: self.handle_nudge_key(-1))
         self.root.bind("<Shift-Up>", lambda _event: self.handle_nudge_key(5))
         self.root.bind("<Shift-Down>", lambda _event: self.handle_nudge_key(-5))
 
         controller.add_listener(self._on_bpm_changed)
+
+    def _build_zone_row(self, container: tk.Frame, epic_controller: EpicController) -> None:
+        """Build the five EPIC zone buttons and the "Zone: <name>" caption (EPIC-03).
+
+        Selected-zone highlight uses a bold font copy plus the caption,
+        not relief alone -- this Mac's Tk 9.0.3 (aqua) largely ignores
+        relief on native buttons (confirmed during planning), so relief is
+        set too but the font + caption are what actually render the
+        selection on this theme.
+        """
+        self.zone_font = tkfont.nametofont("TkDefaultFont").copy()
+        self.zone_font_selected = tkfont.nametofont("TkDefaultFont").copy()
+        self.zone_font_selected.configure(weight="bold")
+
+        self.zone_row = tk.Frame(container, pady=8)
+        self.zone_row.pack()
+
+        self.zone_buttons: dict[str, tk.Button] = {}
+        for name in epic_controller.zone_names:
+            button = tk.Button(
+                self.zone_row,
+                text=name,
+                takefocus=0,
+                font=self.zone_font,
+                command=lambda z=name: epic_controller.select_zone(z),
+            )
+            button.pack(side="left", padx=2)
+            self.zone_buttons[name] = button
+
+        self.zone_label = tk.Label(container)
+        self.zone_label.pack()
+
+        epic_controller.add_listener(self._on_zone_changed)
+        self._on_zone_changed(epic_controller.zone)
+
+    def _on_zone_changed(self, zone: str) -> None:
+        for name, button in self.zone_buttons.items():
+            if name == zone:
+                button.configure(font=self.zone_font_selected, relief="sunken")
+            else:
+                button.configure(font=self.zone_font, relief="raised")
+        self.zone_label["text"] = f"Zone: {zone}"
 
     def _toggle_on_top(self) -> None:
         self.root.attributes("-topmost", self.on_top_var.get())
