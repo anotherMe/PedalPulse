@@ -118,6 +118,28 @@ s.waitForBoot({
 		~ppLayers.do { |name| Pbindef(name).stop };
 		~ppPlaying = false;
 		~ppTransportCount = ~ppTransportCount + 1;
+		// Stopping a Pbindef only stops scheduling new events; it does not
+		// reach synths already running on the server, so a sustaining gated
+		// voice (e.g. ppBass) would otherwise ring until its own scheduled
+		// release. Broadcast \gate, 0 now so every gated voice releases
+		// through its own envelope (no hard free, no pop; gate-less voices
+		// like kick/hat are short percussive envelopes that end on their
+		// own regardless).
+		~ppInstrGroup.set(\gate, 0);
+		// A note emitted just before Stop may already be on its way as an
+		// OSC bundle timestamped up to s.latency ahead (same race as the
+		// re-evaluation teardown above), so it can start and sustain after
+		// this broadcast. Schedule a second one after s.latency to catch
+		// it; the ~ppPlaying guard skips it if Start already happened in
+		// the meantime. This second broadcast can legitimately find that a
+		// node it targets has already ended and been freed by its own
+		// release envelope -- the server then logs "FAILURE IN SERVER
+		// /n_set Node N not found" on the post window, which is expected
+		// and harmless.
+		SystemClock.sched((s.latency ? 0.2) + 0.05, {
+			if (~ppPlaying.not) { ~ppInstrGroup.set(\gate, 0) };
+			nil;
+		});
 		"PedalPulse: stopped".postln;
 	};
 

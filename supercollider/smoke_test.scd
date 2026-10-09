@@ -14,6 +14,7 @@
 (
 var root, venvPython;
 var fail, checkOk, checkSkip, sendCli, waitForApplyChange, waitForPlaying;
+var sendPlay, instrChildCount;
 var peakVal = 0.0, peakOSCdef;
 
 // Watchdog first, in case anything below hangs.
@@ -72,6 +73,31 @@ waitForPlaying = { |want, timeoutSec|
 	~ppPlaying == want;
 };
 
+// Direct sclang send for /pp/play (Task 2 engine-only checks). The Python
+// path through osc_client.py is already covered by the "python stop" /
+// "python start" checks above.
+sendPlay = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/play', value) };
+
+// Queries the server for the number of direct children of ~ppInstrGroup
+// via /g_queryTree, polling up to 1s for the /g_queryTree.reply. Fails if
+// no reply arrives. (Verified empirically: for an OSCFunc-received reply,
+// msg[0] is the address, msg[1] the echoed flag, msg[2] the queried
+// group's node ID, and msg[3] the direct-child count.)
+instrChildCount = {
+	var replyMsg = nil, oscFunc, elapsed = 0;
+	oscFunc = OSCFunc({ |msg| replyMsg = msg; }, '/g_queryTree.reply', s.addr);
+	s.sendMsg('/g_queryTree', ~ppInstrGroup.nodeID, 0);
+	while ({ replyMsg.isNil and: { elapsed < 1 } }) {
+		0.05.wait;
+		elapsed = elapsed + 0.05;
+	};
+	oscFunc.free;
+	if (replyMsg.isNil) {
+		fail.("instrChildCount", "no /g_queryTree.reply within 1s");
+	};
+	replyMsg[3];
+};
+
 // Peak-probe OSCdef: SendReply.kr(... '/pp/test/peak', [peakL, peakR]) ->
 // msg = [address, nodeID, replyID, peakL, peakR].
 peakOSCdef = OSCdef(\ppPeakProbeReply, { |msg|
@@ -79,7 +105,7 @@ peakOSCdef = OSCdef(\ppPeakProbeReply, { |msg|
 }, '/pp/test/peak');
 
 fork({
-	var elapsed, portOk, tempoOk, venvOk, sendResult, applyCountBefore;
+	var elapsed, portOk, tempoOk, venvOk, sendResult, applyCountBefore, stopSentAt;
 
 	// Boot our own isolated server first (not one of the named checks below --
 	// main.scd's own s.waitForBoot gate is what "boot ready" verifies).
@@ -262,13 +288,180 @@ fork({
 		} {
 			var countBefore = ~ppTempoApplyCount;
 			var tempoBefore = ~clock.tempo;
+			var transportCountBefore = ~ppTransportCount;
 			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/bpm', 77);
+			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/play', 0);
 			(~clock.beatDur * 2).wait;
 			if ((~ppTempoApplyCount != countBefore) or: { ~clock.tempo != tempoBefore }) {
 				fail.("loopback-only", "apply happened after send from non-loopback address %".format(lanIP));
 			};
+			if ((~ppTransportCount != transportCountBefore) or: { ~ppPlaying.not }) {
+				fail.("loopback-only", "/pp/play changed transport state after send from non-loopback address %".format(lanIP));
+			};
 			checkOk.("loopback-only");
 		};
+	}.value;
+
+	// --- group gate broadcast (RESEARCH Assumption A3, proven before any
+	// Stop below relies on it) ---
+	{
+		var scratchBus, scratchGroup, failMsgs, failOSCFunc, probe, bassVoice;
+		failMsgs = [];
+		failOSCFunc = OSCFunc({ |msg| failMsgs = failMsgs.add(msg); }, '/fail', s.addr);
+
+		// Positive control first: prove the collector actually sees /fail
+		// replies, so an empty collector below means something. This
+		// posts one "FAILURE IN SERVER /n_set Node 999999 not found" line;
+		// that is expected.
+		s.sendMsg('/n_set', 999999, \gate, 0);
+		0.3.wait;
+		if (failMsgs.isEmpty) {
+			fail.("group gate broadcast", "positive control did not produce a /fail reply");
+		};
+		failMsgs = [];
+
+		SynthDef(\ppNoGateProbe, { |out = 0, amp = 0.1|
+			var sig = SinOsc.ar(440) * amp * Line.kr(1, 1, 3, doneAction: 2);
+			Out.ar(out, sig ! 2);
+		}).add;
+		s.sync;
+
+		scratchBus = Bus.audio(s, 2);
+		scratchGroup = Group.new(s);
+
+		probe = Synth(\ppNoGateProbe, [\out, scratchBus], scratchGroup);  // no gate control
+		bassVoice = Synth(\ppBass, [\out, scratchBus], scratchGroup);  // gate defaults to 1
+		NodeWatcher.register(probe, true);
+		NodeWatcher.register(bassVoice, true);
+
+		0.3.wait;
+		scratchGroup.set(\gate, 0);
+		0.5.wait;
+
+		if (failMsgs.notEmpty) {
+			fail.("group gate broadcast", "server sent /fail after group-wide gate broadcast: %".format(failMsgs));
+		};
+		if (probe.isPlaying.not) {
+			fail.("group gate broadcast", "no-gate probe stopped playing after gate broadcast (it must ignore a gate it does not have)");
+		};
+		if (bassVoice.isPlaying) {
+			fail.("group gate broadcast", "gated bass voice still playing after gate broadcast (it must release through its envelope and free)");
+		};
+
+		scratchGroup.free;
+		scratchBus.free;
+		failOSCFunc.free;
+		checkOk.("group gate broadcast");
+	}.value;
+
+	// --- play idempotent ---
+	{
+		var countBefore = ~ppTransportCount;
+		sendPlay.(1);
+		sendPlay.(1);
+		0.5.wait;
+		if (~ppTransportCount != countBefore) {
+			fail.("play idempotent", "transport count changed on repeated /pp/play 1 while already playing");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("play idempotent", "Pbindef(%) stopped playing after repeated /pp/play 1".format(name));
+			};
+		};
+		stopSentAt = Main.elapsedTime;
+		sendPlay.(0);
+		sendPlay.(0);
+		0.5.wait;
+		if (~ppTransportCount != (countBefore + 1)) {
+			fail.("play idempotent", "expected exactly 1 transport change, got %".format(~ppTransportCount - countBefore));
+		};
+		if (~ppPlaying) {
+			fail.("play idempotent", "~ppPlaying still true after repeated /pp/play 0");
+		};
+		checkOk.("play idempotent");
+	}.value;
+
+	// --- stop releases all ---
+	{
+		var count = instrChildCount.();
+		while ({ (count != 0) and: { (Main.elapsedTime - stopSentAt) < 2.5 } }) {
+			0.2.wait;
+			count = instrChildCount.();
+		};
+		if (count != 0) {
+			fail.("stop releases all", "instrument group still has % children % s after stop".format(count, Main.elapsedTime - stopSentAt));
+		};
+		(~clock.beatDur * 2).wait;  // nothing new is scheduled while stopped
+		count = instrChildCount.();
+		if (count != 0) {
+			fail.("stop releases all", "instrument group has % children 2 beats after emptying".format(count));
+		};
+		checkOk.("stop releases all");
+	}.value;
+
+	// --- start on bar: Start re-enters exactly on a quant:4 bar line ---
+	{
+		var firstGoBeat = nil, nGoOSCFunc, elapsed8b = 0, eventBeat, timeoutSec;
+		timeoutSec = (~clock.beatDur * 4) + 1.5;
+		nGoOSCFunc = OSCFunc({ |msg|
+			if (firstGoBeat.isNil and: { msg[2] == ~ppInstrGroup.nodeID }) {
+				firstGoBeat = ~clock.beats;
+			};
+		}, '/n_go', s.addr);
+		sendPlay.(1);
+		while ({ firstGoBeat.isNil and: { elapsed8b < timeoutSec } }) {
+			0.05.wait;
+			elapsed8b = elapsed8b + 0.05;
+		};
+		if (firstGoBeat.isNil) {
+			fail.("start on bar", "no /n_go for ~ppInstrGroup within % s".format(timeoutSec));
+		};
+		// The notification arrives one server latency after the event's
+		// logical time.
+		eventBeat = firstGoBeat - ((s.latency ? 0.2) * ~clock.tempo);
+		if ((eventBeat - eventBeat.round(4)).abs > 0.15) {
+			fail.("start on bar", "event beat % is not within 0.15 of a 4-beat bar line (firstGoBeat %)".format(eventBeat, firstGoBeat));
+		};
+		if (~ppPlaying.not) {
+			fail.("start on bar", "~ppPlaying is false after /pp/play 1");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("start on bar", "Pbindef(%) not playing after /pp/play 1".format(name));
+			};
+		};
+		nGoOSCFunc.free;
+		checkOk.("start on bar");
+	}.value;
+
+	// --- play malformed ignored ---
+	{
+		var countBefore = ~ppTransportCount;
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/play');
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/play', "stop");
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/play', 0.0/0.0);
+		0.5.wait;
+		if (~ppTransportCount != countBefore) {
+			fail.("play malformed ignored", "transport count changed after malformed /pp/play input");
+		};
+		if (~ppPlaying.not) {
+			fail.("play malformed ignored", "~ppPlaying became false after malformed /pp/play input");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("play malformed ignored", "Pbindef(%) not playing after malformed /pp/play input".format(name));
+			};
+		};
+		sendPlay.(0);
+		0.5.wait;
+		if (~ppPlaying) {
+			fail.("play malformed ignored", "~ppPlaying still true after /pp/play 0 (handler broken after malformed input)");
+		};
+		sendPlay.(1);
+		if (waitForPlaying.(true, 2).not) {
+			fail.("play malformed ignored", "~ppPlaying did not become true again after /pp/play 1");
+		};
+		checkOk.("play malformed ignored");
 	}.value;
 
 	// --- B6: node-leak bound ---
@@ -340,6 +533,15 @@ fork({
 		};
 		if (~ppReady.not) {
 			fail.("re-evaluation", "engine never became ready again after reload");
+		};
+
+		if (~ppPlaying.not) {
+			fail.("re-evaluation", "~ppPlaying is false after reload (autostart should bring it back up)");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("re-evaluation", "Pbindef(%) not playing after reload (autostart should bring it back up)".format(name));
+			};
 		};
 
 		if (oldClock.isRunning) {
