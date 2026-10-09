@@ -20,14 +20,14 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 - ✓ SuperCollider engine plays a continuous melodic techno / progressive trance groove: kick, hat, clap, bass, 16th-note arpeggio, pad, all on one TempoClock (fixed loop) — Phase 2
 - ✓ BPM changes glide over ~2 bars from a beat boundary, retarget smoothly mid-glide, clamped 60–180 — Phase 2
 - ✓ Start/Stop the music from the GUI (`/pp/play <int>`): clean gate-release Stop, bar-synced Start — Phase 2
+- ✓ Engine listens for `/pp/epic <float 0–100>` over OSC (loopback-only, clamped, malformed-arg tolerant) — Phase 3
+- ✓ EPIC level maps to brightness/energy: one lagged EPIC value drives filter cutoff, drive, reverb amount and synth richness together, gliding smoothly between zones — Phase 3
+- ✓ Tkinter GUI with five EPIC zone preset buttons (Recovery 10 / Endurance 30 / Tempo 50 / Threshold 75 / VO2 100) and a visible selected-zone highlight — Phase 3
+- ✓ Master volume slider in the GUI (`/pp/volume <float 0–100>`, squared taper, default 80); gain applied before the limiter, so VO2 at full volume never clips — Phase 3
 
 ### Active
 
 - [ ] Long-session stability (60+ min without node/CPU growth) — master limiter already shipped in Phase 1; soak test in Phase 4
-- [ ] Engine listens for `/epic` over OSC (the `/pp/bpm` OSCdef pattern from Phase 1 extends to it)
-- [ ] EPIC level (0–100) maps to brightness/energy: filter cutoff, drive, reverb/delay amount, synth richness — with smoothed (lagged) changes
-- [ ] Tkinter GUI with EPIC control: named zone preset buttons (Recovery / Endurance / Tempo / Threshold / VO2)
-- [ ] Master volume control from the GUI (start/stop shipped in Phase 2)
 - [ ] Connection indicator in the GUI driven by an engine heartbeat (UDP OSC fails silently otherwise)
 - [ ] GUI displays the engine's actual current BPM (mid-ramp) and EPIC
 
@@ -65,8 +65,8 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Manual BPM setting instead of cadence→BPM formula | User wants direct control; cadence mapping can come later | ✓ Good — Phase 1 UAT confirmed the manual BPM chain end to end |
-| EPIC = brightness/energy (filters, drive, FX) for v1 | Most direct, audible mapping; density/harmony/builds deferred | — Pending |
-| EPIC control = zone preset buttons only in v1 | Quick hits between intervals; fine-tune slider deferred to v2 | — Pending |
+| EPIC = brightness/energy (filters, drive, FX) for v1 | Most direct, audible mapping; density/harmony/builds deferred | ✓ Good — Phase 3 UAT: each zone up sounds brighter and more energetic, all parameters moving together |
+| EPIC control = zone preset buttons only in v1 | Quick hits between intervals; fine-tune slider deferred to v2 | ✓ Good — Phase 3 five zone buttons |
 | Fixed loop music for v1, generative evolution in v2 | v1 is a tech proof of the control chain | ✓ Good — Phase 2 six-layer fixed loop accepted by ear as melodic techno / trance |
 | Add heartbeat-based connection indicator | Research: UDP OSC fails silently | — Pending |
 | Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | ✓ Good — Phase 2: one long-lived `~ppRampStepper` is the sole tempo writer (8-beat glide, beat-aligned engage, mid-glide retarget); UAT confirmed no jolt |
@@ -79,6 +79,9 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 | Transport is `/pp/play <int>` (1 start, 0 stop), loopback-only and idempotent; Stop broadcasts `\gate, 0` to the instrument group (immediate + guarded second broadcast after `s.latency`) instead of freeing nodes | Every voice ends through its own release envelope (no click), in-flight notes are caught; occasional harmless `FAILURE IN SERVER /n_set Node N not found` on Stop is expected | ✓ Good — Phase 2 (UAT passed) |
 | `~ppLayers` is the single list of groove layers; Start uses `doReset: true` + `quant: 4` | Teardown, Start/Stop and smoke checks iterate one list; layers re-enter in phase on the bar | ✓ Good — Phase 2 |
 | GUI `PlayController` sends an int only on a real state change, no debounce; button takes no focus | Engine is idempotent so rapid clicks are harmless; no interference with arrow-key BPM shortcuts | ✓ Good — Phase 2 |
+| EPIC = one raw control bus → one `Lag.kr` smoother (1.5 s) → one `\ppFx` synth deriving drive/cutoff/richness/reverb from that single value | All four parameters move in lockstep by construction; glides retarget smoothly mid-glide with no zipper | ✓ Good — Phase 3 (UAT: smooth zone glides, including back-to-back clicks) |
+| Master volume is a 0.2 s lagged gain inside `\ppMaster`, strictly before `Limiter.ar`, with a squared taper `(v/100)²` | Never bypass the limiter; equal slider moves feel like roughly equal loudness steps | ✓ Good — Phase 3 (VO2 + volume 100 peak ≤ limiter ceiling, UAT confirmed no clipping) |
+| Persistent FX/smoother synths have no envelope and are freed by the teardown block | Deliberate exception to the `doneAction: 2` rule, which still applies to per-note voices | ✓ Good — Phase 3 (leak-free re-evaluation checked headlessly) |
 
 ## Evolution
 
@@ -98,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-09 after Phase 2*
+*Last updated: 2026-10-09 after Phase 3*

@@ -22,8 +22,8 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 
 ### EPIC
 
-- [ ] **EPIC-01**: EPIC level 0–100 audibly changes brightness/energy by driving filter cutoff, drive/saturation, reverb/delay amount and synth richness together
-- [ ] **EPIC-02**: EPIC changes glide smoothly (lagged parameters) with no stepping or clicks
+- [x] **EPIC-01**: EPIC level 0–100 audibly changes brightness/energy by driving filter cutoff, drive/saturation, reverb/delay amount and synth richness together
+- [x] **EPIC-02**: EPIC changes glide smoothly (lagged parameters) with no stepping or clicks
 - [x] **EPIC-03**: User can select EPIC via five zone preset buttons (Recovery / Endurance / Tempo / Threshold / VO2), each mapped to a predefined EPIC value
 
 ### GUI
@@ -89,8 +89,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEMPO-01 | Phase 2 | Complete |
 | TEMPO-02 | Phase 2 | Complete |
 | TEMPO-03 | Phase 1 | Complete |
-| EPIC-01 | Phase 3 | Pending |
-| EPIC-02 | Phase 3 | Pending |
+| EPIC-01 | Phase 3 | Complete |
+| EPIC-02 | Phase 3 | Complete |
 | EPIC-03 | Phase 3 | Complete |
 | GUI-01 | Phase 1 | Complete |
 | GUI-02 | Phase 2 | Complete |

@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 03
-current_phase_name: EPIC Zones & Volume
-status: executing
-stopped_at: Phase 02 complete, ready to plan Phase 3
-last_updated: "2026-10-09T19:39:26.777Z"
+current_phase: 4
+current_phase_name: Live Feedback & Ride Endurance
+status: planning
+stopped_at: Phase 03 complete, ready to plan Phase 4
+last_updated: "2026-10-09T21:44:51.231Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 03 execution started
-state_head: 5866fd269c97ef34bdbad9655da7aca70736f922
+last_activity_desc: Phase 03 complete, transitioned to Phase 4
+state_head: "0b1b819721b9f35cb8245ead56df0773bf0e91c8"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 7
-  percent: 50
+  completed_plans: 11
+  percent: 75
 ---
 
 # Project State
@@ -23,21 +23,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-09)
 
 **Core value:** Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes the live, generated music in SuperCollider — the Python → OSC → SuperCollider chain works end to end.
-**Current focus:** Phase 03 — EPIC Zones & Volume
+**Current focus:** Phase 4 — Live Feedback & Ride Endurance
 
 ## Current Position
 
-Phase: 03 (EPIC Zones & Volume) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 03
-Last activity: 2026-10-09 — Phase 03 execution started
+Phase: 4 — Live Feedback & Ride Endurance
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-09 — Phase 03 complete, transitioned to Phase 4
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 11
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -47,6 +47,7 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 01 | 3 | - | - |
 | 02 | 4 | - | - |
+| 03 | 4 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -79,6 +80,8 @@ Recent decisions affecting current work:
 - [Phase 2]: Transport is `/pp/play <int>` (loopback-only, idempotent); Stop = group `\gate, 0` broadcast + guarded second broadcast, never node free; `~ppLayers` is the single layer list new layers append to
 - [Phase 2]: `~ppRampStepper` is the only writer of `~clock.tempo` (8-beat glide, beat-aligned engage, mid-glide retarget); Phase 3 EPIC changes must not write tempo
 - [Phase 2]: New voices stay within ≤3 oscillators + 1 filter, write to `~ppMixBus` (through the limiter) and self-free with doneAction: 2
+- [Phase 3]: EPIC is `/pp/epic <float 0–100>` → one raw bus → one `Lag.kr` smoother → one `\ppFx` synth → `~ppFxBus` → `\ppMaster`; zones are Recovery 10 / Endurance 30 / Tempo 50 / Threshold 75 / VO2 100
+- [Phase 3]: Volume is `/pp/volume <float 0–100>`, a 0.2 s lagged squared-taper gain inside `\ppMaster` before the limiter; GUI sends on slider release, launch sends 80
 
 ### Pending Todos
 
@@ -86,8 +89,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1, open review finding WR-01]: Up/Down arrow keys nudge BPM even while the BPM entry has focus, discarding half-typed text (`python_app/view.py:115-118`); fix before adding more GUI controls in Phase 3
-- [Phase 2, open code-review findings]: WR-01 `osc_client.py` send_* catch only OSError (huge CLI ints raise python-osc BuildError); WR-02 `test_send_play_coerces_bool_to_int` cannot detect a missing int() coercion; IN-01 glide lands at ~7.75 beats. See 02-REVIEW-DISPOSITION.md; fix with `/gsd-code-review 02 --fix`
+- [Phase 2, open code-review findings]: WR-02 `test_send_play_coerces_bool_to_int` cannot detect a missing int() coercion; IN-01 glide lands at ~7.75 beats (WR-01 BuildError catch fixed in Phase 3 plan 01). See 02-REVIEW-DISPOSITION.md
+- [Phase 3, open code-review findings]: WR-01 `Debouncer.trigger()` token tracking breaks if `schedule()` fires synchronously; WR-02 `osc_client.py` CLI prints "sent" even when the send failed; IN-01 mutable default zone map; IN-02 `apply_entry()` sends before notifying. See 03-REVIEW-DISPOSITION.md; fix with `/gsd-code-review 03 --fix`
 - [Phase 2, UI review]: no feedback when the engine is not running (scoped to Phase 4 LINK-02/03); spacing scale inconsistent (`transport_row` pady=4 vs `nudge_row` pady=8)
 - [Phase 4]: CPU/timing coexistence with Zwift and macOS audio-device switching can only be known through a live soak test
 
@@ -102,5 +105,5 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-10-09T15:20:40.821Z
-Stopped at: Phase 02 complete, ready to plan Phase 3
+Stopped at: Phase 03 complete, ready to plan Phase 4
 Resume file: None

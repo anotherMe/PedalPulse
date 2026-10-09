@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Tempo Link Skeleton** - Single sclang entry file plays a basic loop; Tkinter BPM control changes its tempo over OSC (completed 2026-10-09)
 - [x] **Phase 2: Full Groove & Smooth Tempo** - Drums, bass, arp and pad play together, glide beat-synchronously to new BPMs, and start/stop from the GUI (completed 2026-10-09)
-- [ ] **Phase 3: EPIC Zones & Volume** - Five zone preset buttons make the music brighter and more energetic; master volume from the GUI, never clipping
+- [x] **Phase 3: EPIC Zones & Volume** - Five zone preset buttons make the music brighter and more energetic; master volume from the GUI, never clipping (completed 2026-10-09)
 - [ ] **Phase 4: Live Feedback & Ride Endurance** - Heartbeat connection indicator, live engine BPM/EPIC display, and 60+ minute stability
 
 ## Phase Details
@@ -85,7 +85,7 @@ Plans:
   3. Switching zones glides smoothly to the new energy level with no stepping, zipper noise or clicks
   4. User adjusts master volume from the app and loudness changes smoothly; with VO2 selected and volume at maximum, the output still never clips
 
-**Plans:** 4/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -126,5 +126,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Tempo Link Skeleton | 3/3 | Complete    | 2026-10-09 |
 | 2. Full Groove & Smooth Tempo | 4/4 | Complete    | 2026-10-09 |
-| 3. EPIC Zones & Volume | 4/4 | In Progress | - |
+| 3. EPIC Zones & Volume | 4/4 | Complete    | 2026-10-09 |
 | 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |
