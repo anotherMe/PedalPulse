@@ -18,7 +18,7 @@ import types
 import pytest
 
 import config
-from bpm_logic import BpmController, EpicController, PlayController
+from bpm_logic import BpmController, EpicController, PlayController, VolumeController
 from view import BpmWindow
 
 
@@ -70,7 +70,16 @@ def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
     play = PlayController(send=play_sent.append)
     epic_sent: list[float] = []
     epic = EpicController(send=epic_sent.append)
-    window = BpmWindow(root, controller, status_text, play_controller=play, epic_controller=epic)
+    volume_sent: list[float] = []
+    volume = VolumeController(send=volume_sent.append)
+    window = BpmWindow(
+        root,
+        controller,
+        status_text,
+        play_controller=play,
+        epic_controller=epic,
+        volume_controller=volume,
+    )
     return types.SimpleNamespace(
         window=window,
         controller=controller,
@@ -79,6 +88,8 @@ def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
         play_sent=play_sent,
         epic=epic,
         epic_sent=epic_sent,
+        volume=volume,
+        volume_sent=volume_sent,
     )
 
 
@@ -386,3 +397,75 @@ def test_zone_click_keeps_arrow_shortcuts_on_bpm(tk_root):
     assert controller.value == 121
     assert all_.sent == [121.0]
     assert all_.epic_sent == [75.0]
+
+
+# --- 11. Volume slider (GUI-03) --------------------------------------------
+
+
+def test_volume_scale_builds_at_default(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+
+    assert float(window.volume_scale["from"]) == 0
+    assert float(window.volume_scale["to"]) == 100
+    assert window.volume_var.get() == 80
+    assert window.volume_scale["label"] == "Volume"
+    assert str(window.volume_scale["takefocus"]) == "0"
+    assert all_.volume_sent == []
+
+
+def test_volume_drag_then_release_sends_once(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+    volume = all_.volume
+    volume_sent = all_.volume_sent
+
+    window.volume_scale.set(55)
+    pump(tk_root, 20)
+    assert volume.value == 55
+    assert volume_sent == []
+
+    window.volume_scale.set(40)
+    pump(tk_root, 20)
+    window.volume_scale.event_generate("<ButtonRelease-1>")
+    pump(tk_root, 20)
+    assert volume_sent == [40.0]
+
+
+def test_volume_slider_keeps_arrow_shortcuts_on_bpm(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+    controller = all_.controller
+    volume = all_.volume
+
+    window.volume_scale.set(55)
+    pump(tk_root, 20)
+    window.volume_scale.event_generate("<ButtonRelease-1>")
+    pump(tk_root, 20)
+
+    tk_root.focus_force()
+    pump(tk_root, 100)
+    tk_root.event_generate("<Up>")
+    pump(tk_root, 300)
+
+    assert controller.value == 121
+    assert all_.sent == [121.0]
+    assert volume.value == 55
+    assert all_.volume_sent == [55.0]
+
+
+def test_window_layout_order(tk_root):
+    all_ = _build_all(tk_root)
+    window = all_.window
+
+    container_children = window.scale.master.pack_slaves()
+    assert container_children == [
+        window.scale,
+        window.nudge_row,
+        window.zone_row,
+        window.zone_label,
+        window.transport_row,
+        window.volume_row,
+        window.status_label,
+        window.on_top_check,
+    ]
