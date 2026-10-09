@@ -58,7 +58,7 @@ Plans:
   3. When the user changes BPM again mid-glide, the music retargets from its current tempo without restarting or jumping
   4. User presses Stop in the app and the music stops cleanly (no hanging notes); pressing Start brings the full groove back in time
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -69,7 +69,7 @@ Plans:
 - [x] 02-03-PLAN.md — Beat-synchronous 8-beat tempo glide with mid-glide retarget via one ramp-stepper Routine; Phase 1 smoke checks adapted to glide semantics (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 02-04-PLAN.md — Full groove (clap, arpeggio, pad added to kick/hat/bass) on one clock, Stop-cuts-held-pad checks, end-of-phase listening acceptance (wave 3)
+- [x] 02-04-PLAN.md — Full groove (clap, arpeggio, pad added to kick/hat/bass) on one clock, Stop-cuts-held-pad checks, end-of-phase listening acceptance (wave 3)
 
 **UI hint**: yes
 
@@ -111,6 +111,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Tempo Link Skeleton | 3/3 | Complete    | 2026-10-09 |
-| 2. Full Groove & Smooth Tempo | 3/4 | In Progress | - |
+| 2. Full Groove & Smooth Tempo | 4/4 | In Progress | - |
 | 3. EPIC Zones & Volume | 0/TBD | Not started | - |
 | 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |
