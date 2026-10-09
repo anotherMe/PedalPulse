@@ -195,3 +195,19 @@ None beyond what the plan's own `<threat_model>` already covers (T-03-14 through
 ---
 *Phase: 03-epic-zones-volume*
 *Completed: 2026-10-09*
+
+## Self-Check: PASSED
+
+- FOUND: python_app/tests/test_volume_logic.py
+- FOUND: python_app/config.py
+- FOUND: python_app/bpm_logic.py
+- FOUND: python_app/view.py
+- FOUND: python_app/main.py
+- FOUND: .planning/phases/03-epic-zones-volume/03-04-SUMMARY.md
+- FOUND: commit 623197b (Task 1 RED, ancestor of HEAD)
+- FOUND: commit 17a06b7 (Task 1 GREEN, ancestor of HEAD)
+- FOUND: commit de941dc (Task 2, ancestor of HEAD)
+- FOUND: commit 68966fe (plan metadata, ancestor of HEAD)
+- FOUND: .venv/bin/pytest python_app/tests -q -rs exits 0 (150 passed, 0 skipped)
+- FOUND: timeout 30 ./run.sh --port 57199 --exit-after 800 exits 0
+- FOUND: bash scripts/smoke_test.sh exits 0, SMOKE PASS, 65 CHECK OK lines (>= 64 required), includes "max epic max volume no clip"
