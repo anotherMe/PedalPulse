@@ -150,6 +150,14 @@ None - no external service configuration required. The existing `.venv` setup fr
 - Phase 2's remaining open item is the human listening pass (Task 2's six-step acceptance) -- recommend running it before `/gsd-verify-work` closes the phase, since success criteria 2 and 3 (glide smoothness, Stop/Start feel) are explicitly ear-judged, not automatable.
 - Phase 3 (EPIC FX) can build on this groove directly: the six-layer `~ppLayers` list, the mix bus, and the limiter headroom margin (pre-limiter peak currently 0.21-0.27 against a 0.891 ceiling) all leave room for EPIC's planned filter/drive/reverb additions without restructuring this plan's work.
 
+## Self-Check: PASSED
+
+- FOUND: supercollider/main.scd
+- FOUND: supercollider/smoke_test.scd
+- FOUND: .planning/phases/02-full-groove-smooth-tempo/02-04-SUMMARY.md
+- FOUND: ac82835 (Task 1 commit, ancestor of HEAD)
+- FOUND: f1501f2 (Task 2 commit, ancestor of HEAD)
+
 ---
 *Phase: 02-full-groove-smooth-tempo*
 *Completed: 2026-10-09*
