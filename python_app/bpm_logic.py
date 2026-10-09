@@ -27,8 +27,23 @@ def clamp_bpm(value: float) -> int:
 
 
 def parse_bpm_entry(text: str) -> int | None:
-    """RED stub -- real implementation added in GREEN."""
-    return None
+    """Parse a user-typed BPM string (D-09, D-10).
+
+    Returns None for empty/whitespace-only, non-numeric, or non-finite
+    (nan/inf) text. Otherwise returns clamp_bpm(float(text)) -- the same
+    half-up rounding and 60..180 snapping used by the slider, so entry
+    and slider follow one shared rule.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        value = float(stripped)
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return clamp_bpm(value)
 
 
 class Debouncer:
@@ -88,13 +103,17 @@ class BpmController:
     def add_listener(self, fn: Callable[[int], None]) -> None:
         self._listeners.append(fn)
 
+    def _notify(self) -> None:
+        """Call every listener with the current value (no change required)."""
+        for listener in self._listeners:
+            listener(self._value)
+
     def _set(self, new_value: int) -> bool:
         """Update the value and notify listeners only on an actual change."""
         if new_value == self._value:
             return False
         self._value = new_value
-        for listener in self._listeners:
-            listener(new_value)
+        self._notify()
         return True
 
     def _send_now(self) -> None:
@@ -117,8 +136,30 @@ class BpmController:
             self._debouncer.trigger(self._send_now)
 
     def apply_entry(self, text: str, *, force: bool) -> bool:
-        """RED stub -- real implementation added in GREEN."""
-        return False
+        """Commit a typed entry value (D-10, D-21).
+
+        Invalid text (parse_bpm_entry returns None) reverts: listeners are
+        notified with the CURRENT value (so the view's entry text snaps
+        back), nothing is sent, and this returns False.
+
+        Valid text always updates/clamps the value. A commit sends now
+        (which also cancels any pending debounced nudge send -- the
+        ordering guarantee) when the value actually changed, or when
+        force=True (Enter always commits, even at an unchanged value).
+        An unforced, unchanged commit (focus-out) only re-notifies so the
+        displayed text normalises (e.g. "150.0" -> "150"), without a send.
+        """
+        parsed = parse_bpm_entry(text)
+        if parsed is None:
+            self._notify()
+            return False
+
+        changed = self._set(parsed)
+        if force or changed:
+            self._send_now()
+        else:
+            self._notify()
+        return True
 
     def send_initial(self) -> None:
         """Send the current value once, unconditionally (D-23)."""
