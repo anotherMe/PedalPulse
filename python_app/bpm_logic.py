@@ -1,5 +1,5 @@
-"""Pure BPM and transport (play/stop) state + send policy for the PedalPulse
-control app (GUI-01, GUI-02, LINK-01).
+"""Pure BPM, transport (play/stop) and EPIC zone state + send policy for the
+PedalPulse control app (GUI-01, GUI-02, EPIC-03, LINK-01).
 
 No tkinter import -- this module stays unit-testable without a display and
 is driven by injected schedule/cancel callables (Tk's root.after /
@@ -9,7 +9,7 @@ root.after_cancel in the app, a fake scheduler in tests).
 from __future__ import annotations
 
 import math
-from typing import Callable
+from typing import Callable, Mapping
 
 import config
 
@@ -217,3 +217,71 @@ class PlayController:
     def send_initial(self) -> None:
         """Send the current state once, unconditionally, without notifying (D-23)."""
         self._send(1 if self._playing else 0)
+
+
+class EpicController:
+    """Tracks the selected EPIC zone and decides when to send its preset (EPIC-03).
+
+    Mirrors PlayController's track-value/notify-on-change/no-debounce shape:
+    track the current zone, notify listeners on an actual change, let
+    select_zone decide send timing. The engine never learns zone names --
+    it only receives the preset's numeric value over /pp/epic (RESEARCH
+    Pattern 3).
+    """
+
+    def __init__(
+        self,
+        send: Callable[[float], object],
+        zones: Mapping[str, float] = config.EPIC_ZONES,
+        initial_zone: str = config.EPIC_DEFAULT_ZONE,
+    ) -> None:
+        zones = dict(zones)
+        if not zones:
+            raise ValueError("EpicController: zones must not be empty")
+        if initial_zone not in zones:
+            raise ValueError(f"EpicController: initial_zone {initial_zone!r} not in zones")
+        self._send = send
+        self._zones = zones
+        self._zone = initial_zone
+        self._listeners: list[Callable[[str], None]] = []
+
+    @property
+    def zone(self) -> str:
+        return self._zone
+
+    @property
+    def value(self) -> float:
+        return float(self._zones[self._zone])
+
+    @property
+    def zone_names(self) -> tuple[str, ...]:
+        return tuple(self._zones)
+
+    def add_listener(self, fn: Callable[[str], None]) -> None:
+        self._listeners.append(fn)
+
+    def _notify(self) -> None:
+        for listener in self._listeners:
+            listener(self._zone)
+
+    def select_zone(self, name: str) -> None:
+        """Select a zone by name; notify and send only on an actual change.
+
+        Raises ValueError before any state change if name is not a known
+        zone. Returns without notifying or sending if name equals the
+        current zone. Otherwise stores the new zone, calls every listener
+        with the zone name, then sends once -- send is fire-and-forget
+        (its return value is ignored, same as PlayController): a falsy
+        return never rolls the zone back.
+        """
+        if name not in self._zones:
+            raise ValueError(f"unknown EPIC zone {name!r}")
+        if name == self._zone:
+            return
+        self._zone = name
+        self._notify()
+        self._send(float(self._zones[name]))
+
+    def send_initial(self) -> None:
+        """Send the current zone's value once, unconditionally, without notifying (D-23)."""
+        self._send(float(self._zones[self._zone]))
