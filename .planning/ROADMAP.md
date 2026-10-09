@@ -32,14 +32,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Dragging the BPM slider rapidly does not flood the engine (updates are throttled/coalesced and the final value always arrives), and BPM values outside 60–180 sent to the engine are clamped to that range
   5. All engine audio passes through a master limiter: with the loop's gain pushed deliberately hot, output peaks stay at the limiter ceiling with no clipping
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
 - [x] 01-01-PLAN.md — Engine walking skeleton: tracer (Python OscClient → /pp/bpm → OSCdef → TempoClock) + kick/hat/bass loop, limiter, clamp and the headless smoke-test contract (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-02-PLAN.md — Launchable BPM window: pytest legitimacy gate, ./run.sh + Tk compatibility gate, slider (send on release) + debounced nudge buttons (wave 2)
+- [x] 01-02-PLAN.md — Launchable BPM window: pytest legitimacy gate, ./run.sh + Tk compatibility gate, slider (send on release) + debounced nudge buttons (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-03-PLAN.md — Entry field + Up/Down/Shift shortcuts, all controls in sync, Tk 9 widget smoke test, end-to-end acceptance (wave 3)
@@ -98,7 +98,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Tempo Link Skeleton | 1/3 | In Progress | - |
+| 1. Tempo Link Skeleton | 2/3 | In Progress | - |
 | 2. Full Groove & Smooth Tempo | 0/TBD | Not started | - |
 | 3. EPIC Zones & Volume | 0/TBD | Not started | - |
 | 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |
