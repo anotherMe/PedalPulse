@@ -1,7 +1,7 @@
-"""Tk widgets for the PedalPulse control app (GUI-01, D-06, D-12).
+"""Tk widgets for the PedalPulse control app (GUI-01, GUI-02, D-06, D-12).
 
 No OSC import here (D-24) -- this module only builds and wires Tk widgets
-to a BpmController; it never talks to the network directly.
+to a BpmController/PlayController; it never talks to the network directly.
 """
 
 from __future__ import annotations
@@ -9,19 +9,30 @@ from __future__ import annotations
 import tkinter as tk
 
 import config
-from bpm_logic import BpmController
+from bpm_logic import BpmController, PlayController
 
 # D-06 layout: −5 −1 [value] +1 +5. The minus sign is U+2212 MINUS SIGN,
 # not an ASCII hyphen.
 NUDGE_LABELS = {-5: "−5", -1: "−1", 1: "+1", 5: "+5"}
 
+# GUI-02: the button's label always names the action a click will perform.
+PLAY_LABELS = {True: "Stop", False: "Start"}
+
 
 class BpmWindow:
     """Compact window: BPM slider, nudge row, status line, On top toggle."""
 
-    def __init__(self, root: tk.Tk, controller: BpmController, status_text: str) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        controller: BpmController,
+        status_text: str,
+        *,
+        play_controller: PlayController,
+    ) -> None:
         self.root = root
         self.controller = controller
+        self.play_controller = play_controller
 
         root.title("PedalPulse")
         root.resizable(False, False)
@@ -96,6 +107,20 @@ class BpmWindow:
             button.pack(side="left", padx=4)
             self.nudge_buttons[delta] = button
 
+        self.transport_row = tk.Frame(container, pady=4)
+        self.transport_row.pack()
+
+        self.play_button = tk.Button(
+            self.transport_row,
+            text=PLAY_LABELS[play_controller.playing],
+            width=8,
+            takefocus=0,
+            command=play_controller.toggle,
+        )
+        self.play_button.pack()
+
+        play_controller.add_listener(self._on_playing_changed)
+
         self.status_label = tk.Label(container, text=status_text)
         self.status_label.pack(pady=(4, 0))
 
@@ -125,6 +150,9 @@ class BpmWindow:
     def _on_bpm_changed(self, new_value: int) -> None:
         self.bpm_var.set(new_value)
         self.entry_var.set(str(new_value))
+
+    def _on_playing_changed(self, playing: bool) -> None:
+        self.play_button["text"] = PLAY_LABELS[playing]
 
     def commit_entry(self, force: bool) -> str | None:
         """Apply the entry's current text (D-10).
