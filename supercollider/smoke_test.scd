@@ -14,7 +14,7 @@
 (
 var root, venvPython;
 var fail, checkOk, checkSkip, sendCli, waitForApplyChange, waitForPlaying;
-var sendPlay, instrChildCount;
+var sendPlay, instrChildCount, instrDefNames;
 var peakVal = 0.0, peakOSCdef;
 var sendBpm, waitForTempo, traceGlide, lastTrace;
 
@@ -133,6 +133,37 @@ instrChildCount = {
 		fail.("instrChildCount", "no /g_queryTree.reply within 1s");
 	};
 	replyMsg[3];
+};
+
+// Queries the server (like instrChildCount, flag 0) and parses the
+// /g_queryTree.reply into the SynthDef names of ~ppInstrGroup's direct
+// children. Starting at index 4, each child synth occupies three slots
+// (node ID, -1, def name) -- the def name is always present at flag 0,
+// only the per-control values are gated by the flag. Fails if a child
+// reports a value other than -1 at the second slot (a subgroup is not
+// expected inside the flat instrument group). Returns a Set of Symbols.
+instrDefNames = {
+	var replyMsg = nil, oscFunc, elapsed = 0, names, i;
+	oscFunc = OSCFunc({ |msg| replyMsg = msg; }, '/g_queryTree.reply', s.addr);
+	s.sendMsg('/g_queryTree', ~ppInstrGroup.nodeID, 0);
+	while ({ replyMsg.isNil and: { elapsed < 1 } }) {
+		0.05.wait;
+		elapsed = elapsed + 0.05;
+	};
+	oscFunc.free;
+	if (replyMsg.isNil) {
+		fail.("instrDefNames", "no /g_queryTree.reply within 1s");
+	};
+	names = Set.new;
+	i = 4;
+	while ({ i < replyMsg.size }) {
+		if (replyMsg[i + 1] != -1) {
+			fail.("instrDefNames", "child node % reports numChildren % (expected -1, a subgroup is not expected)".format(replyMsg[i], replyMsg[i + 1]));
+		};
+		names.add(replyMsg[i + 2].asSymbol);
+		i = i + 3;
+	};
+	names;
 };
 
 // Peak-probe OSCdef: SendReply.kr(... '/pp/test/peak', [peakL, peakR]) ->
@@ -473,6 +504,39 @@ fork({
 		checkOk.("retarget mid-glide");
 	}.value;
 
+	// --- all layers playing (ENG-01) ---
+	{
+		var expected = Set[\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad];
+		if (~ppLayers.asSet != expected) {
+			fail.("all layers playing", "~ppLayers % != expected %".format(~ppLayers.asSet, expected));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("all layers playing", "Pbindef(%) not playing".format(name));
+			};
+			if (Pbindef(name).player.clock !== ~clock) {
+				fail.("all layers playing", "Pbindef(%) player.clock is not ~clock".format(name));
+			};
+		};
+		checkOk.("all layers playing");
+	}.value;
+
+	// --- all layers sounding (ENG-01): every SynthDef name observed on the
+	// server within 3 bars ---
+	{
+		var expected = Set[\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad];
+		var seen = Set.new, elapsedAls = 0, timeoutSec = ~clock.beatDur * 12;
+		while ({ (seen.size < expected.size) and: { elapsedAls < timeoutSec } }) {
+			seen = seen | instrDefNames.();
+			0.05.wait;
+			elapsedAls = elapsedAls + 0.05;
+		};
+		if ((expected - seen).notEmpty) {
+			fail.("all layers sounding", "missing SynthDef names on server: %".format(expected - seen));
+		};
+		checkOk.("all layers sounding");
+	}.value;
+
 	// --- B3: latest wins (TEMPO-03, D-14) ---
 	applyCountBefore = ~ppTempoApplyCount;
 	sendCli.("100 130");
@@ -738,33 +802,53 @@ fork({
 		checkOk.("node bound");
 	}.value;
 
-	// --- B7: limiter, no bypass + ceiling (ENG-02, D-16, D-17) ---
+	// --- B7: mix headroom + limiter, no bypass + ceiling (ENG-02, D-16, D-17) ---
 	{
-		var measurePeak, peak0, peak1, peak8;
-		measurePeak = { |durSec|
+		var measurePeak, peakMix, peak0, peak1, peak8, mixProbe;
+		// Generalised to take the bus index to probe (keep the \ppPeakProbe
+		// SynthDef); placement stays after ~ppMasterGroup for these
+		// post-limiter checks, which always probe bus 0.
+		measurePeak = { |busIndex, durSec|
 			var probe;
 			peakVal = 0.0;
-			probe = Synth.after(~ppMasterGroup, \ppPeakProbe, [\in, 0]);
+			probe = Synth.after(~ppMasterGroup, \ppPeakProbe, [\in, busIndex]);
 			durSec.wait;
 			probe.free;
 			peakVal;
 		};
 
+		// --- mix headroom: the pre-limiter sum on ~ppMixBus stays under the
+		// limiter ceiling at default gain, so the limiter is a safety net
+		// rather than a constant compressor. Probe is placed after
+		// ~ppInstrGroup (which writes ~ppMixBus) and before ~ppMasterGroup
+		// (which reads and limits it), so it sees the raw sum. ---
+		~ppMasterSynth.set(\preGain, 1);
+		peakVal = 0.0;
+		mixProbe = Synth.after(~ppInstrGroup, \ppPeakProbe, [\in, ~ppMixBus.index]);
+		4.wait;
+		mixProbe.free;
+		peakMix = peakVal;
+		"PedalPulse smoke: pre-limiter mix peak = %".format(peakMix).postln;
+		if (peakMix > 0.891) {
+			fail.("mix headroom", "pre-limiter mix peak % exceeds 0.891".format(peakMix));
+		};
+		checkOk.("mix headroom");
+
 		~ppMasterSynth.set(\preGain, 0);
 		0.5.wait;
-		peak0 = measurePeak.(2);
+		peak0 = measurePeak.(0, 2);
 		if (peak0 >= 0.001) {
 			fail.("limiter no bypass", "peak % with preGain 0 (expected < 0.001)".format(peak0));
 		};
 		checkOk.("limiter no bypass");
 
 		~ppMasterSynth.set(\preGain, 1);
-		peak1 = measurePeak.(2);
+		peak1 = measurePeak.(0, 2);
 		"PedalPulse smoke: peak at preGain 1 = %".format(peak1).postln;
 
 		~ppMasterSynth.set(\preGain, 8);
 		0.5.wait;
-		peak8 = measurePeak.(2);
+		peak8 = measurePeak.(0, 2);
 		if ((peak8 > 0.5).not or: { peak8 > 0.90 }) {
 			fail.("limiter ceiling", "peak % with preGain 8 (expected in (0.5, 0.90])".format(peak8));
 		};
