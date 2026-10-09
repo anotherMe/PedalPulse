@@ -12,6 +12,11 @@
 // clipping. Reset to 1.0 afterwards.
 ~preGain = 1.0;
 
+// Tempo-glide tuning (TEMPO-01/02): length of a glide in beats (8 = 2 bars
+// of 4/4) and the stepper's tick granularity (0.25 = one 16th note).
+~ppRampBeats = 8;
+~ppRampStepBeats = 0.25;
+
 s.options.numInputBusChannels = 0;  // no mic input: avoids the macOS mic permission prompt, saves CPU
 s.options.numOutputBusChannels = 2;
 // s.latency left at its default (Pitfall 3).
@@ -24,6 +29,7 @@ s.waitForBoot({
 	// appends the new layers here and every stop/start loop below follows.
 	~ppLayers = [\ppKick, \ppHat, \ppBass];
 	~ppLayers.do { |name| Pbindef(name).stop };
+	if (~ppRampStepper.notNil) { ~ppRampStepper.stop };
 	if (~clock.notNil) { ~clock.stop };
 	// Wait out s.latency: a note-on just before .stop may already be sent as
 	// a timestamped OSC bundle for the near future. Free too soon and that
@@ -33,7 +39,7 @@ s.waitForBoot({
 	if (~ppMasterGroup.notNil) { ~ppMasterGroup.free };
 	if (~ppInstrGroup.notNil) { ~ppInstrGroup.free };
 	if (~ppMixBus.notNil) { ~ppMixBus.free };
-	~ppApplyScheduled = false;  // a pending apply on the stopped clock can never wedge later messages
+	~ppRampPendingBpm = nil; ~ppRampRateBpm = 0;  // a pending target on a stopped clock can never wedge later messages
 
 	SynthDef(\ppKick, { |out = 0, amp = 0.5|
 		var sig, env;
@@ -72,9 +78,58 @@ s.waitForBoot({
 	// --- Clock and loop ---
 	~bpm = ~bpm ? 120;  // D-07: fresh session starts at 120; re-evaluation keeps the last applied tempo
 	~clock = TempoClock.new(~bpm / 60).permanent_(true);
-	~ppApplyScheduled = false;
+	~ppRampTargetBpm = ~bpm;
+	~ppRampRateBpm = 0;
+	~ppRampPendingBpm = nil;
 	~ppTempoApplyCount = 0;
 	~ppLastApplyBeat = nil;
+	~ppRampStartBeat = nil;
+	~ppRampLandBeat = nil;
+
+	// Ramp stepper (TEMPO-01/02): the ONLY writer of ~clock.tempo. Plays on
+	// ~clock itself and waits in beats, never SystemClock/AppClock or
+	// seconds (Pitfall 1) -- so the glide's real-world duration naturally
+	// tracks tempo, and every layer below (which also plays on ~clock)
+	// never drifts from it. Started once per evaluation, right after the
+	// clock.
+	~ppRampStepper = Routine({
+		loop {
+			var beat, onBeat;
+			beat = ~clock.beats;
+			onBeat = (beat - beat.round).abs < 1e-6;
+			// Engage the pending target: from rest only on a whole beat
+			// (TEMPO-01, beat-synchronous start); mid-glide, on any tick
+			// (TEMPO-02, immediate retarget -- no restart, no re-quantize).
+			if (~ppRampPendingBpm.notNil and: { (~ppRampRateBpm > 0) or: { onBeat } }) {
+				var nowBpm, fromRest;
+				nowBpm = ~clock.tempo * 60;
+				fromRest = (~ppRampRateBpm == 0);
+				~ppRampTargetBpm = ~ppRampPendingBpm;
+				~ppRampPendingBpm = nil;
+				~ppRampRateBpm = (~ppRampTargetBpm - nowBpm).abs / ~ppRampBeats;
+				~ppTempoApplyCount = ~ppTempoApplyCount + 1;
+				~ppLastApplyBeat = beat;
+				if (fromRest and: { ~ppRampRateBpm > 0 }) { ~ppRampStartBeat = beat };
+			};
+			// Step toward the target by at most one ramp step; land exactly
+			// on it once within a step (no overshoot, no residual rate).
+			if (~ppRampRateBpm > 0) {
+				var nowBpm, diff, maxStep;
+				nowBpm = ~clock.tempo * 60;
+				diff = ~ppRampTargetBpm - nowBpm;
+				maxStep = ~ppRampRateBpm * ~ppRampStepBeats;
+				if (diff.abs <= (maxStep + 1e-9)) {
+					~clock.tempo = ~ppRampTargetBpm / 60;
+					~ppRampRateBpm = 0;
+					~ppRampLandBeat = beat;
+				} {
+					~clock.tempo = (nowBpm + (diff.sign * maxStep)) / 60;
+				};
+			};
+			~bpm = ~clock.tempo * 60;  // keep ~bpm current so a re-evaluation preserves the instantaneous tempo
+			~ppRampStepBeats.wait;
+		};
+	}).play(~clock, quant: 1);
 
 	Pbindef(\ppKick,
 		\instrument, \ppKick,
@@ -156,19 +211,8 @@ s.waitForBoot({
 			"PedalPulse WARNING: ignoring /pp/bpm with invalid argument %".format(raw).postln;
 		} {
 			var bpm = raw.asFloat.clip(60, 180);  // TEMPO-03, D-09
-			~ppPendingBpm = bpm;
-			"PedalPulse: /pp/bpm % -> % BPM at next beat".format(raw, bpm).postln;
-			if (~ppApplyScheduled.not) {
-				~ppApplyScheduled = true;
-				~clock.schedAbs(~clock.nextTimeOnGrid(1), {
-					~clock.tempo = ~ppPendingBpm / 60;
-					~bpm = ~ppPendingBpm;
-					~ppLastApplyBeat = ~clock.beats;
-					~ppTempoApplyCount = ~ppTempoApplyCount + 1;
-					~ppApplyScheduled = false;
-					nil;
-				});
-			};
+			~ppRampPendingBpm = bpm;
+			"PedalPulse: /pp/bpm % -> % BPM (glide over % beats)".format(raw, bpm, ~ppRampBeats).postln;
 		};
 	}, '/pp/bpm', srcID: NetAddr("127.0.0.1", nil));
 

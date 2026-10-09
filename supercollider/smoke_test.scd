@@ -16,9 +16,12 @@ var root, venvPython;
 var fail, checkOk, checkSkip, sendCli, waitForApplyChange, waitForPlaying;
 var sendPlay, instrChildCount;
 var peakVal = 0.0, peakOSCdef;
+var sendBpm, waitForTempo, traceGlide, lastTrace;
 
-// Watchdog first, in case anything below hangs.
-SystemClock.sched(120, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
+// Watchdog first, in case anything below hangs. Raised from 120 to 240s:
+// the Task 2 glide checks (glide reaches target/upward, retarget mid-glide)
+// each wait for an ~8-beat glide to land, adding roughly 40s overall.
+SystemClock.sched(240, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
 
 // sclang reports a relative nowExecutingPath when given a relative path
 // (verified during planning), so resolve to an absolute path first.
@@ -77,6 +80,40 @@ waitForPlaying = { |want, timeoutSec|
 // path through osc_client.py is already covered by the "python stop" /
 // "python start" checks above.
 sendPlay = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/play', value) };
+
+// Direct sclang send for /pp/bpm (Task 2 timing-sensitive glide checks). The
+// Python path through osc_client.py stays covered by "python tempo 140" and
+// the clamp table.
+sendBpm = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm', value) };
+
+// Polls until the engine has landed exactly on `bpm` (tempo matches within
+// 1e-6 AND the ramp rate is back to 0 -- no residual glide), up to
+// `timeoutSec`. Returns true or false (timeout). A `timeoutSec` of 0 acts
+// as a one-shot "is it already landed" predicate (no wait).
+waitForTempo = { |bpm, timeoutSec|
+	var elapsed = 0;
+	while ({
+		(((~clock.tempo * 60 - bpm).abs >= 1e-6) or: { ~ppRampRateBpm != 0 }) and: { elapsed < timeoutSec }
+	}) {
+		0.05.wait;
+		elapsed = elapsed + 0.05;
+	};
+	((~clock.tempo * 60 - bpm).abs < 1e-6) and: { ~ppRampRateBpm == 0 };
+};
+
+// Samples [beat, bpm] every 0.02s into a List until the engine lands on
+// `target` (same landed condition as waitForTempo) or `timeoutSec` passes.
+// Returns the List (whatever was sampled, even on timeout).
+traceGlide = { |target, timeoutSec|
+	var samples = List.new, elapsed = 0, landed = false;
+	while ({ landed.not and: { elapsed < timeoutSec } }) {
+		samples.add([~clock.beats, ~clock.tempo * 60]);
+		landed = ((~clock.tempo * 60 - target).abs < 1e-6) and: { ~ppRampRateBpm == 0 };
+		0.02.wait;
+		elapsed = elapsed + 0.02;
+	};
+	samples;
+};
 
 // Queries the server for the number of direct children of ~ppInstrGroup
 // via /g_queryTree, polling up to 1s for the /g_queryTree.reply. Fails if
@@ -173,6 +210,9 @@ fork({
 	if (waitForApplyChange.(applyCountBefore, 3).not) {
 		fail.("python tempo 140", "no apply within 3s");
 	};
+	if (waitForTempo.(140, 12).not) {
+		fail.("python tempo 140", "glide never landed on 140 BPM within 12s");
+	};
 	tempoOk = ((~clock.tempo * 60 - 140).abs < 1e-6);
 	if (tempoOk.not) {
 		fail.("python tempo 140", "got % BPM".format(~clock.tempo * 60));
@@ -226,15 +266,46 @@ fork({
 		if (waitForApplyChange.(before, 3).not) {
 			fail.(name, "no apply within 3s for sent=%".format(sent));
 		};
-		if ((~clock.tempo * 60 - expected).abs >= 1e-6) {
-			fail.(name, "expected % BPM, got %".format(expected, ~clock.tempo * 60));
-		};
-		if ((~ppLastApplyBeat - ~ppLastApplyBeat.round).abs >= 1e-6) {
-			fail.("whole-beat apply", "~ppLastApplyBeat % is not on a whole beat (sent=%)".format(~ppLastApplyBeat, sent));
+		if ((~ppRampTargetBpm - expected).abs >= 1e-6) {
+			fail.(name, "expected glide target % BPM, got %".format(expected, ~ppRampTargetBpm));
 		};
 		checkOk.(name);
 	});
-	checkOk.("whole-beat apply");
+	if (waitForTempo.(150.5, 12).not) {
+		fail.("clamp table settle", "glide never landed on 150.5 BPM within 12s");
+	};
+	checkOk.("clamp table settle");
+
+	// --- glide starts on beat (TEMPO-01): a glide from rest begins on a
+	// whole beat, not before, and lands exactly on the new target ---
+	{
+		var sendBeat, startBefore, trace;
+		sendBeat = ~clock.beats;
+		startBefore = ~ppRampStartBeat;
+		sendBpm.(120);
+		trace = traceGlide.(120, 15);
+		lastTrace = trace;
+		if (~ppRampStartBeat == startBefore) {
+			fail.("glide starts on beat", "~ppRampStartBeat did not change after sending 120");
+		};
+		if ((~ppRampStartBeat - ~ppRampStartBeat.round).abs >= 1e-6) {
+			fail.("glide starts on beat", "~ppRampStartBeat % is not a whole beat".format(~ppRampStartBeat));
+		};
+		if (~ppRampStartBeat < (sendBeat - 1e-6)) {
+			fail.("glide starts on beat", "~ppRampStartBeat % is before the send beat %".format(~ppRampStartBeat, sendBeat));
+		};
+		trace.do({ |sample|
+			if (sample[0] < (~ppRampStartBeat - 0.01)) {
+				if ((sample[1] - 150.5).abs >= 1e-6) {
+					fail.("glide starts on beat", "tempo % at beat % (before the start beat) is not still 150.5".format(sample[1], sample[0]));
+				};
+			};
+		});
+		if (((~clock.tempo * 60 - 120).abs >= 1e-6) or: { ~ppRampRateBpm != 0 }) {
+			fail.("glide starts on beat", "engine did not land on 120 BPM (tempo=%, rate=%)".format(~clock.tempo * 60, ~ppRampRateBpm));
+		};
+		checkOk.("glide starts on beat");
+	}.value;
 
 	// --- B3: latest wins (TEMPO-03, D-14) ---
 	applyCountBefore = ~ppTempoApplyCount;
@@ -245,18 +316,22 @@ fork({
 	if (~ppTempoApplyCount != (applyCountBefore + 1)) {
 		fail.("latest wins", "expected exactly 1 apply, got % applies".format(~ppTempoApplyCount - applyCountBefore));
 	};
-	(~clock.beatDur * 1).wait;  // wait one more beat; must not apply again
+	if (~ppRampTargetBpm != 130) {
+		fail.("latest wins", "expected glide target 130, got %".format(~ppRampTargetBpm));
+	};
+	(~clock.beatDur * 1).wait;  // wait one more beat; must not engage again
 	if (~ppTempoApplyCount != (applyCountBefore + 1)) {
 		fail.("latest wins", "a second apply happened within 1 beat of the first");
 	};
-	if ((~clock.tempo * 60 - 130).abs >= 1e-6) {
-		fail.("latest wins", "expected 130 BPM, got %".format(~clock.tempo * 60));
+	if (waitForTempo.(130, 12).not) {
+		fail.("latest wins", "glide never landed on 130 BPM within 12s");
 	};
 	checkOk.("latest wins");
 
 	// --- B4: malformed input tolerance ---
 	{
 		var countBefore = ~ppTempoApplyCount;
+		var targetBefore = ~ppRampTargetBpm;
 		var tempoBefore = ~clock.tempo;
 		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm');
 		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm', "fast");
@@ -265,16 +340,31 @@ fork({
 		if (~ppTempoApplyCount != countBefore) {
 			fail.("malformed ignored", "apply count changed after malformed input");
 		};
+		if (~ppRampTargetBpm != targetBefore) {
+			fail.("malformed ignored", "glide target changed after malformed input");
+		};
 		if (~clock.tempo != tempoBefore) {
 			fail.("malformed ignored", "tempo changed after malformed input");
 		};
 		countBefore = ~ppTempoApplyCount;
 		sendCli.("128");
 		if (waitForApplyChange.(countBefore, 3).not) {
-			fail.("malformed ignored", "handler did not apply valid 128 after malformed input");
+			fail.("malformed ignored", "handler did not engage valid 128 after malformed input");
 		};
-		if ((~clock.tempo * 60 - 128).abs >= 1e-6) {
-			fail.("malformed ignored", "expected 128 BPM after recovery, got %".format(~clock.tempo * 60));
+		// A glide to 128 is now in flight; malformed input mid-glide must
+		// not add a second engage or disturb the target (T-02-09).
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm');
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm', "fast");
+		sendCli.("nan");
+		(~clock.beatDur * 1).wait;
+		if (~ppTempoApplyCount != (countBefore + 1)) {
+			fail.("malformed ignored", "malformed input mid-glide changed the apply count");
+		};
+		if (~ppRampTargetBpm != 128) {
+			fail.("malformed ignored", "malformed input mid-glide changed the glide target (got %)".format(~ppRampTargetBpm));
+		};
+		if (waitForTempo.(128, 12).not) {
+			fail.("malformed ignored", "glide never landed on 128 BPM within 12s");
 		};
 		checkOk.("malformed ignored");
 	}.value;
@@ -468,6 +558,9 @@ fork({
 	{
 		var maxSynths = 0, elapsed6 = 0;
 		sendCli.("180");
+		if (waitForTempo.(180, 12).not) {
+			fail.("node bound", "glide never landed on 180 BPM within 12s");
+		};
 		while ({ elapsed6 < 8 }) {
 			maxSynths = max(maxSynths, s.numSynths);
 			0.25.wait;
@@ -575,10 +668,13 @@ fork({
 		countBefore = ~ppTempoApplyCount;
 		sendCli.("128");
 		if (waitForApplyChange.(countBefore, 3).not) {
-			fail.("re-evaluation", "pending-apply flag appears wedged: 128 never applied after reload");
+			fail.("re-evaluation", "glide never engaged after reload");
 		};
-		if ((~clock.tempo * 60 - 128).abs >= 1e-6) {
-			fail.("re-evaluation", "expected 128 BPM after reload-apply, got %".format(~clock.tempo * 60));
+		if (waitForTempo.(128, 12).not) {
+			fail.("re-evaluation", "glide never landed on 128 BPM after reload");
+		};
+		if (((~ppRampLandBeat - ~ppRampStartBeat) < 6) or: { (~ppRampLandBeat - ~ppRampStartBeat) > 9 }) {
+			fail.("re-evaluation", "glide took % beats, expected 6-9 (a stacked second stepper would halve it)".format(~ppRampLandBeat - ~ppRampStartBeat));
 		};
 
 		checkOk.("re-evaluation");
