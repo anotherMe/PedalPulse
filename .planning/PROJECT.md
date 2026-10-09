@@ -12,19 +12,20 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Engine runs on a dedicated TempoClock driven by a BPM value (kick + hat + A-minor bass loop) — Phase 1
+- ✓ Engine listens for OSC via OSCdef: `/pp/bpm <float>`, loopback-only, clamped 60–180, applied on the next beat — Phase 1
+- ✓ Master limiter on the output bus holds peaks below −1 dBFS — Phase 1
+- ✓ Tkinter GUI with a BPM control: slider, numeric entry, ±1/±5 nudge buttons and arrow keys, kept in sync — Phase 1
+- ✓ GUI sends BPM changes to SuperCollider in real time over OSC (send on slider release, 150 ms nudge debounce) — Phase 1
 
 ### Active
 
 - [ ] SuperCollider engine generates continuous melodic techno / progressive trance: drums, bass, arpeggios, pads
-- [ ] Engine runs on a dedicated TempoClock driven by a BPM value (fixed loop patterns acceptable for v1)
-- [ ] Master limiter and long-session stability (60+ min without node/CPU growth)
+- [ ] Long-session stability (60+ min without node/CPU growth) — master limiter already shipped in Phase 1; soak test in Phase 4
 - [ ] BPM changes ramp smoothly over a few bars (no audible jolt), retargeting safely mid-ramp, clamped to 60–180
+- [ ] Engine listens for `/epic` over OSC (the `/pp/bpm` OSCdef pattern from Phase 1 extends to it)
 - [ ] EPIC level (0–100) maps to brightness/energy: filter cutoff, drive, reverb/delay amount, synth richness — with smoothed (lagged) changes
-- [ ] Engine listens for OSC messages (e.g. `/bpm <value>`, `/epic <value>`) via OSCdef
-- [ ] Tkinter GUI with a BPM control (slider + numeric input)
 - [ ] Tkinter GUI with EPIC control: named zone preset buttons (Recovery / Endurance / Tempo / Threshold / VO2)
-- [ ] GUI sends control changes to SuperCollider in real time over OSC
 - [ ] Basic transport/volume control from the GUI (start/stop music, master volume)
 - [ ] Connection indicator in the GUI driven by an engine heartbeat (UDP OSC fails silently otherwise)
 - [ ] GUI displays the engine's actual current BPM (mid-ramp) and EPIC
@@ -62,15 +63,18 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Manual BPM setting instead of cadence→BPM formula | User wants direct control; cadence mapping can come later | — Pending |
+| Manual BPM setting instead of cadence→BPM formula | User wants direct control; cadence mapping can come later | ✓ Good — Phase 1 UAT confirmed the manual BPM chain end to end |
 | EPIC = brightness/energy (filters, drive, FX) for v1 | Most direct, audible mapping; density/harmony/builds deferred | — Pending |
 | EPIC control = zone preset buttons only in v1 | Quick hits between intervals; fine-tune slider deferred to v2 | — Pending |
 | Fixed loop music for v1, generative evolution in v2 | v1 is a tech proof of the control chain | — Pending |
 | Add heartbeat-based connection indicator | Research: UDP OSC fails silently | — Pending |
 | Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | — Pending |
-| Tkinter for GUI | User preference, zero extra deps | — Pending |
-| Start SC and Python separately | Simpler; avoids process management in v1 | — Pending |
+| Tkinter for GUI | User preference, zero extra deps | ✓ Good — Phase 1 window works under Tk 9.0 |
+| Start SC and Python separately | Simpler; avoids process management in v1 | ✓ Good — `main.scd` in the SC IDE + `./run.sh` |
 | No Zwift integration in v1 | API availability/suitability unknown | — Pending |
+| Accept Tk 8.6 and 9.x; project venv is python3.13 with Tk 9.0 via `./run.sh` | Research advised avoiding Tk 9.0, but the real Tk 9.0.3 widgets pass a widget-level smoke test; the startup gate only rejects Tk < 8.6 or a missing `_tkinter` | ✓ Good — Phase 1 |
+| OSC address `/pp/bpm` with loopback-only `srcID`, engine-side clamp and latest-wins next-beat apply | Engine validates independently of the GUI; bursts cost one apply per beat | ✓ Good — Phase 1 (19-check headless smoke test) |
+| GUI sends BPM on slider release and debounces nudges/keys at 150 ms | Prevents flooding the engine during drags and key auto-repeat | ✓ Good — Phase 1 |
 
 ## Evolution
 
@@ -90,4 +94,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-08 after requirements scoping*
+*Last updated: 2026-10-09 after Phase 1*
