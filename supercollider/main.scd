@@ -17,6 +17,10 @@
 ~ppRampBeats = 8;
 ~ppRampStepBeats = 0.25;
 
+// EPIC-02 glide tuning: the 60 dB lag time (in seconds) of the one shared
+// EPIC smoother. Edit and re-evaluate the whole file to retune.
+~ppEpicLagSecs = 1.5;
+
 s.options.numInputBusChannels = 0;  // no mic input: avoids the macOS mic permission prompt, saves CPU
 s.options.numOutputBusChannels = 2;
 // s.latency left at its default (Pitfall 3).
@@ -38,10 +42,18 @@ s.waitForBoot({
 	// a timestamped OSC bundle for the near future. Free too soon and that
 	// bundle lands on an already-freed group ("Group N not found").
 	0.3.wait;
+	// Free in dependency order: synths that read a bus before the bus
+	// itself, and before the group that contains them (EPIC-01/02 Pitfall 2).
 	if (~ppMasterSynth.notNil) { ~ppMasterSynth.free };
+	if (~ppFxSynth.notNil) { ~ppFxSynth.free };
+	if (~ppEpicSmoother.notNil) { ~ppEpicSmoother.free };
 	if (~ppMasterGroup.notNil) { ~ppMasterGroup.free };
+	if (~ppFxGroup.notNil) { ~ppFxGroup.free };
 	if (~ppInstrGroup.notNil) { ~ppInstrGroup.free };
 	if (~ppMixBus.notNil) { ~ppMixBus.free };
+	if (~ppFxBus.notNil) { ~ppFxBus.free };
+	if (~ppEpicBus.notNil) { ~ppEpicBus.free };
+	if (~ppEpicSmoothBus.notNil) { ~ppEpicSmoothBus.free };
 	~ppRampPendingBpm = nil; ~ppRampRateBpm = 0;  // a pending target on a stopped clock can never wedge later messages
 
 	SynthDef(\ppKick, { |out = 0, amp = 0.5|
@@ -95,12 +107,59 @@ s.waitForBoot({
 		Out.ar(out, Limiter.ar(sig, 0.891251, 0.01));  // D-16: -1 dBFS = 10^(-1/20) ~= 0.891251
 	}).add;
 
+	// These two SynthDefs are persistent for the whole session, not per-note
+	// -- a deliberate exception to the doneAction: 2 rule (which applies to
+	// per-note voices). They have no envelope and are freed explicitly by
+	// the teardown block above, not by doneAction.
+	SynthDef(\ppEpicSmoother, { |in = 0, out = 0, lag = 1.5|
+		Out.kr(out, Lag.kr(In.kr(in), lag));
+	}).add;
+
+	SynthDef(\ppFx, { |in = 0, out = 0, epicBus = 0|
+		var sig = In.ar(in, 2);
+		// One read of the already-smoothed EPIC bus (0..1) drives every
+		// parameter below -- this single-read-one-synth design is what
+		// makes drive/filter/richness/reverb all move together (EPIC-01).
+		var epic = In.kr(epicBus);
+		var drive = epic.linlin(0, 1, 1.0, 3.5);
+		var cutoff = epic.linexp(0, 1, 500, 9000);
+		var wet = epic.linlin(0, 1, 0.08, 0.35);
+		sig = (sig * drive).softclip;
+		sig = RLPF.ar(sig, cutoff, 0.5);
+		sig = sig + (HPF.ar(sig, 3500) * epic * 0.35);
+		sig = FreeVerb2.ar(sig[0], sig[1], wet, 0.6, 0.3);
+		Out.ar(out, sig);
+	}).add;
+
 	s.sync;
 
 	~ppMixBus = Bus.audio(s, 2);
+	~ppFxBus = Bus.audio(s, 2);
+	~ppEpicBus = Bus.control(s, 1);
+	~ppEpicSmoothBus = Bus.control(s, 1);
+
 	~ppInstrGroup = Group.new(s);
-	~ppMasterGroup = Group.after(~ppInstrGroup);
-	~ppMasterSynth = Synth(\ppMaster, [\in, ~ppMixBus, \out, 0, \preGain, ~preGain], ~ppMasterGroup);
+	~ppFxGroup = Group.after(~ppInstrGroup);
+	~ppMasterGroup = Group.after(~ppFxGroup);
+
+	// EPIC state: ~epic = ~epic ? 10 keeps the last value across a
+	// re-evaluation (like ~bpm), defaulting to 10 (Recovery) on a fresh
+	// boot. Set the raw bus BEFORE creating the smoother below: Lag starts
+	// from its first input, so the smoothed value starts at the current
+	// EPIC with no glide from 0 on boot or re-evaluation.
+	~epic = ~epic ? 10;
+	~ppEpicCount = 0;
+	~ppEpicBus.set(~epic / 100);
+
+	~ppEpicSmoother = Synth(\ppEpicSmoother, [\in, ~ppEpicBus.index, \out, ~ppEpicSmoothBus.index, \lag, ~ppEpicLagSecs], ~ppFxGroup, \addToHead);
+	// \addToTail is required here: Synth's default addAction is
+	// \addToHead, which would run the FX synth BEFORE the smoother within
+	// the same control block, reading last block's stale value.
+	~ppFxSynth = Synth(\ppFx, [\in, ~ppMixBus.index, \out, ~ppFxBus.index, \epicBus, ~ppEpicSmoothBus.index], ~ppFxGroup, \addToTail);
+
+	// \ppMaster now reads ~ppFxBus (post-FX), not ~ppMixBus -- the FX chain
+	// sits between the instruments and the limiter, never bypassing it.
+	~ppMasterSynth = Synth(\ppMaster, [\in, ~ppFxBus.index, \out, 0, \preGain, ~preGain], ~ppMasterGroup);
 
 	// --- Clock and loop ---
 	~bpm = ~bpm ? 120;  // D-07: fresh session starts at 120; re-evaluation keeps the last applied tempo
@@ -299,11 +358,27 @@ s.waitForBoot({
 		};
 	}, '/pp/play', srcID: NetAddr("127.0.0.1", nil));
 
+	// --- OSC control: /pp/epic <float 0-100> (EPIC-01/EPIC-02) ---
+	// Loopback-only, same srcID guard as /pp/bpm and /pp/play. The handler
+	// never touches the clock or its tempo -- EPIC is entirely orthogonal
+	// to the tempo-glide mechanism.
+	OSCdef(\pp_epic, { |msg|
+		var raw = msg[1];
+		if (raw.isNumber.not or: { raw.isNaN }) {
+			"PedalPulse WARNING: ignoring /pp/epic with invalid argument %".format(raw).postln;
+		} {
+			~epic = raw.asFloat.clip(0, 100);
+			~ppEpicCount = ~ppEpicCount + 1;
+			~ppEpicBus.set(~epic / 100);
+			"PedalPulse: /pp/epic % -> % (glide over % s)".format(raw, ~epic, ~ppEpicLagSecs).postln;
+		};
+	}, '/pp/epic', srcID: NetAddr("127.0.0.1", nil));
+
 	~ppOscPort = NetAddr.langPort;
 	"PedalPulse: listening for OSC on port %".format(~ppOscPort).postln;
 	if (~ppOscPort != 57120) {
 		"PedalPulse WARNING: OSC port is % but python_app/config.py sends to 57120 -- quit other sclang instances or pass --port %".format(~ppOscPort, ~ppOscPort).postln;
 	};
-	"PedalPulse: ready -- groove playing at % BPM (/pp/bpm, /pp/play)".format(~bpm).postln;
+	"PedalPulse: ready -- groove playing at % BPM, EPIC % (/pp/bpm, /pp/play, /pp/epic)".format(~bpm, ~epic).postln;
 	~ppReady = true;
 });

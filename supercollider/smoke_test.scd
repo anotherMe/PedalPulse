@@ -14,14 +14,17 @@
 (
 var root, venvPython;
 var fail, checkOk, checkSkip, sendCli, waitForApplyChange, waitForPlaying;
-var sendPlay, instrChildCount, instrDefNames;
+var sendPlay, instrChildCount, instrDefNames, groupChildDefs;
 var peakVal = 0.0, peakOSCdef;
 var sendBpm, waitForTempo, traceGlide, lastTrace;
+var sendEpic, traceCtl, readCtl, waitEpicSettled, measureBand;
+var ctlSamples, bandSum = 0, bandCount = 0, ctlOSCdef, bandOSCdef;
+var stepBound;
 
-// Watchdog first, in case anything below hangs. Raised from 120 to 240s:
-// the Task 2 glide checks (glide reaches target/upward, retarget mid-glide)
-// each wait for an ~8-beat glide to land, adding roughly 40s overall.
-SystemClock.sched(240, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
+// Watchdog first, in case anything below hangs. Raised from 240 to 300s:
+// Phase 3's EPIC checks wait out the 1.5s EPIC lag several times (glide
+// up/down/retarget, clamp float settle, fx headroom, re-evaluation).
+SystemClock.sched(300, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
 
 // sclang reports a relative nowExecutingPath when given a relative path
 // (verified during planning), so resolve to an absolute path first.
@@ -85,6 +88,64 @@ sendPlay = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/play', 
 // Python path through osc_client.py stays covered by "python tempo 140" and
 // the clamp table.
 sendBpm = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm', value) };
+
+// Direct sclang send for /pp/epic (EPIC-01/02 timing-sensitive checks). The
+// Python path through osc_client.py stays covered by "python epic" and the
+// clamp table.
+sendEpic = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/epic', value) };
+
+// Traces a control-rate bus for durSec seconds via \ppCtlProbe, running
+// `action` (if notNil) after a short pre-roll so the very first samples
+// reflect the bus's settled starting value. Returns the collected List of
+// [value, pulseCount] pairs.
+traceCtl = { |busIndex, durSec, action|
+	var probe;
+	ctlSamples = List.new;
+	probe = Synth.after(~ppMasterGroup, \ppCtlProbe, [\in, busIndex]);
+	0.1.wait;  // pre-roll: let the probe's first replies settle before sampling
+	if (action.notNil) { action.value; };
+	durSec.wait;
+	probe.free;
+	ctlSamples;
+};
+
+// One-shot read of a control-rate bus's current value via traceCtl (0.1s).
+readCtl = { |busIndex|
+	var samples = traceCtl.(busIndex, 0.1, nil);
+	if (samples.isEmpty) {
+		fail.("readCtl", "no /pp/test/ctl reply");
+	};
+	samples.last[0];
+};
+
+// Polls readCtl until it is within 0.005 of target (0..1 scale) or
+// timeoutSec has elapsed. Returns a Boolean.
+waitEpicSettled = { |target, timeoutSec|
+	var elapsed = 0, settled = false;
+	while ({ settled.not and: { elapsed < timeoutSec } }) {
+		settled = (readCtl.(~ppEpicSmoothBus.index) - target).abs < 0.005;
+		if (settled.not) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+	};
+	settled;
+};
+
+// Measures the mean high-frequency-band amplitude on an audio bus over
+// durSec seconds via \ppBandProbe.
+measureBand = { |busIndex, hpfFreq, durSec|
+	var probe;
+	bandSum = 0;
+	bandCount = 0;
+	probe = Synth.after(~ppMasterGroup, \ppBandProbe, [\in, busIndex, \hpf, hpfFreq]);
+	durSec.wait;
+	probe.free;
+	if (bandCount == 0) {
+		fail.("measureBand", "no /pp/test/band replies");
+	};
+	bandSum / bandCount;
+};
 
 // Polls until the engine has landed exactly on `bpm` (tempo matches within
 // 1e-6 AND the ramp rate is back to 0 -- no residual glide), up to
@@ -166,11 +227,55 @@ instrDefNames = {
 	names;
 };
 
+// Like instrDefNames, but for an arbitrary group and returning an ORDERED
+// Array of SynthDef-name Symbols (not a Set) -- so callers can assert on
+// child order, e.g. "the smoother runs before the FX synth". Fails if a
+// child reports a value other than -1 (a subgroup is not expected).
+groupChildDefs = { |group|
+	var replyMsg = nil, oscFunc, elapsed = 0, names, i;
+	oscFunc = OSCFunc({ |msg| replyMsg = msg; }, '/g_queryTree.reply', s.addr);
+	s.sendMsg('/g_queryTree', group.nodeID, 0);
+	while ({ replyMsg.isNil and: { elapsed < 1 } }) {
+		0.05.wait;
+		elapsed = elapsed + 0.05;
+	};
+	oscFunc.free;
+	if (replyMsg.isNil) {
+		fail.("groupChildDefs", "no /g_queryTree.reply within 1s");
+	};
+	names = Array.new;
+	i = 4;
+	while ({ i < replyMsg.size }) {
+		if (replyMsg[i + 1] != -1) {
+			fail.("groupChildDefs", "child node % reports numChildren % (expected -1, a subgroup is not expected)".format(replyMsg[i], replyMsg[i + 1]));
+		};
+		names = names.add(replyMsg[i + 2].asSymbol);
+		i = i + 3;
+	};
+	names;
+};
+
 // Peak-probe OSCdef: SendReply.kr(... '/pp/test/peak', [peakL, peakR]) ->
 // msg = [address, nodeID, replyID, peakL, peakR].
 peakOSCdef = OSCdef(\ppPeakProbeReply, { |msg|
 	peakVal = max(peakVal, max(msg[3], msg[4]));
 }, '/pp/test/peak');
+
+// Control-bus probe OSCdef (EPIC-01/02): SendReply.kr(... '/pp/test/ctl',
+// [value, pulseCount]) -> msg = [address, nodeID, replyID, value, count].
+// Only collects while a trace is active (ctlSamples notNil).
+ctlOSCdef = OSCdef(\ppCtlProbeReply, { |msg|
+	if (ctlSamples.notNil) { ctlSamples.add([msg[3], msg[4]]); };
+}, '/pp/test/ctl');
+
+// High-frequency-band probe OSCdef (EPIC-01 "brightens output"):
+// SendReply.kr(... '/pp/test/band', [ampL, ampR]) -> msg = [address,
+// nodeID, replyID, ampL, ampR]. Accumulates a running mean of the louder
+// channel while measureBand is active.
+bandOSCdef = OSCdef(\ppBandProbeReply, { |msg|
+	bandSum = bandSum + max(msg[3], msg[4]);
+	bandCount = bandCount + 1;
+}, '/pp/test/band');
 
 fork({
 	var elapsed, portOk, tempoOk, venvOk, sendResult, applyCountBefore, stopSentAt;
@@ -194,6 +299,21 @@ fork({
 	SynthDef(\ppPeakProbe, { |in = 0|
 		var sig = In.ar(in, 2);
 		SendReply.kr(Impulse.kr(20), '/pp/test/peak', Peak.ar(sig));
+	}).add;
+
+	// Control-bus probe SynthDef (test-only; not part of main.scd): reports
+	// a control-rate bus's instantaneous value plus a running pulse count,
+	// so traceCtl below can detect a dropped reply (gap > 1) and scale its
+	// step-bound tolerance accordingly.
+	SynthDef(\ppCtlProbe, { |in = 0|
+		var trig = Impulse.kr(50);
+		SendReply.kr(trig, '/pp/test/ctl', [In.kr(in), PulseCount.kr(trig)]);
+	}).add;
+
+	// High-frequency-band probe SynthDef (test-only; not part of main.scd):
+	// measures the amplitude of the signal above hpf on an audio bus.
+	SynthDef(\ppBandProbe, { |in = 0, hpf = 4000|
+		SendReply.kr(Impulse.kr(20), '/pp/test/band', Amplitude.kr(HPF.ar(In.ar(in, 2), hpf), 0.01, 0.1));
 	}).add;
 	s.sync;
 
@@ -279,6 +399,72 @@ fork({
 			};
 		};
 		checkOk.("python start");
+	}.value;
+
+	// --- python epic / epic brightens output: real Python -> /pp/epic
+	// -> one smoothed EPIC value -> one FX synth -> limiter (EPIC-01
+	// tracer slice) ---
+	{
+		var countBefore, hfLow, hfHigh, elapsedEp;
+
+		countBefore = ~ppEpicCount;
+		sendResult = sendCli.("--epic 0");
+		if (sendResult != 0) {
+			fail.("python epic", "osc_client.py exited %".format(sendResult));
+		};
+		elapsedEp = 0;
+		while ({ (~ppEpicCount == countBefore) and: { elapsedEp < 3 } }) {
+			0.1.wait;
+			elapsedEp = elapsedEp + 0.1;
+		};
+		if (~ppEpicCount == countBefore) {
+			fail.("python epic", "~ppEpicCount did not change within 3s for --epic 0");
+		};
+		if (~epic != 0) {
+			fail.("python epic", "expected ~epic == 0, got %".format(~epic));
+		};
+		if (waitEpicSettled.(0.0, 4).not) {
+			fail.("python epic", "smoothed EPIC bus never settled to 0.0 within 4s");
+		};
+		hfLow = measureBand.(0, 4000, 4);
+
+		countBefore = ~ppEpicCount;
+		sendResult = sendCli.("--epic 100");
+		if (sendResult != 0) {
+			fail.("python epic", "osc_client.py exited %".format(sendResult));
+		};
+		elapsedEp = 0;
+		while ({ (~ppEpicCount == countBefore) and: { elapsedEp < 3 } }) {
+			0.1.wait;
+			elapsedEp = elapsedEp + 0.1;
+		};
+		if (~ppEpicCount == countBefore) {
+			fail.("python epic", "~ppEpicCount did not change within 3s for --epic 100");
+		};
+		if (~epic != 100) {
+			fail.("python epic", "expected ~epic == 100, got %".format(~epic));
+		};
+		if (waitEpicSettled.(1.0, 4).not) {
+			fail.("python epic", "smoothed EPIC bus never settled to 1.0 within 4s");
+		};
+		checkOk.("python epic");
+
+		hfHigh = measureBand.(0, 4000, 4);
+		"PedalPulse smoke: >4 kHz level at bus 0: EPIC 0 = %, EPIC 100 = %".format(hfLow, hfHigh).postln;
+		// Probes bus 0 after ~ppMasterGroup -- what the rider hears, so a
+		// master still reading the pre-FX mix bus fails here (Pitfall 3).
+		if (hfHigh <= 0.001) {
+			fail.("epic brightens output", "EPIC 100 high-frequency level % is at or below the silence threshold 0.001".format(hfHigh));
+		};
+		if (hfHigh < (4 * hfLow)) {
+			fail.("epic brightens output", "EPIC 100 high-frequency level % is not at least 4x EPIC 0's level %".format(hfHigh, hfLow));
+		};
+		checkOk.("epic brightens output");
+
+		sendEpic.(10);
+		if (waitEpicSettled.(0.1, 4).not) {
+			fail.("epic brightens output", "smoothed EPIC bus never settled back to the default 0.1 within 4s");
+		};
 	}.value;
 
 	// --- B1/B2: clamp table + whole-beat quantization (TEMPO-03, D-14) ---
@@ -609,14 +795,20 @@ fork({
 			var countBefore = ~ppTempoApplyCount;
 			var tempoBefore = ~clock.tempo;
 			var transportCountBefore = ~ppTransportCount;
+			var epicCountBefore = ~ppEpicCount;
+			var epicBefore = ~epic;
 			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/bpm', 77);
 			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/play', 0);
+			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/epic', 55);
 			(~clock.beatDur * 2).wait;
 			if ((~ppTempoApplyCount != countBefore) or: { ~clock.tempo != tempoBefore }) {
 				fail.("loopback-only", "apply happened after send from non-loopback address %".format(lanIP));
 			};
 			if ((~ppTransportCount != transportCountBefore) or: { ~ppPlaying.not }) {
 				fail.("loopback-only", "/pp/play changed transport state after send from non-loopback address %".format(lanIP));
+			};
+			if ((~ppEpicCount != epicCountBefore) or: { ~epic != epicBefore }) {
+				fail.("loopback-only", "/pp/epic changed EPIC after send from non-loopback address %".format(lanIP));
 			};
 			checkOk.("loopback-only");
 		};
@@ -864,6 +1056,208 @@ fork({
 		checkOk.("stop catches in-flight notes");
 	}.value;
 
+	// --- fx chain order (EPIC-01/02): the smoother runs before the FX
+	// synth within ~ppFxGroup, so \ppFx always reads this block's fresh
+	// smoothed value, never the previous block's stale one. ---
+	{
+		var order = groupChildDefs.(~ppFxGroup);
+		if (order != [\ppEpicSmoother, \ppFx]) {
+			fail.("fx chain order", "~ppFxGroup children % != [ppEpicSmoother, ppFx]".format(order));
+		};
+		checkOk.("fx chain order");
+	}.value;
+
+	// stepBound: 1.5x the largest 20ms move a 60dB exponential lag of
+	// ~ppEpicLagSecs can make on a full-scale (0..1) change -- about 0.13
+	// at 1.5s. Tracks the tuning var. Scaled per-sample-pair by the actual
+	// PulseCount gap so a dropped /pp/test/ctl reply can never cause a
+	// false failure.
+	stepBound = 1.5 * (1 - (0.001 ** (0.02 / ~ppEpicLagSecs)));
+
+	// --- epic glide up (EPIC-02): monotone, bounded, convergent from 0 to
+	// 100, with genuine intermediate values (not a step). ---
+	{
+		var t, i, gap, rise, between = 0;
+		sendEpic.(0);
+		if (waitEpicSettled.(0.0, 4).not) {
+			fail.("epic glide up", "smoothed EPIC bus never settled to 0.0 within 4s");
+		};
+		t = traceCtl.(~ppEpicSmoothBus.index, 2.5, { sendEpic.(100); });
+		if (t.size < 100) {
+			fail.("epic glide up", "only % samples collected, expected >= 100".format(t.size));
+		};
+		if (t.first[0] > 0.01) {
+			fail.("epic glide up", "first sample % is not near 0".format(t.first[0]));
+		};
+		i = 1;
+		while ({ i < t.size }) {
+			gap = t[i][1] - t[i - 1][1];
+			if (gap < 1) {
+				fail.("epic glide up", "PulseCount did not advance between samples % and %".format(i - 1, i));
+			};
+			rise = t[i][0] - t[i - 1][0];
+			// -1e-3, not -1e-4: waitEpicSettled's own 0.005 tolerance means
+			// the trace's pre-roll samples can still carry a few 1e-4-scale
+			// ticks of the PREVIOUS settle's tail decay before the actual
+			// glide-up action fires -- this is residual convergence noise,
+			// not a real reversal. -1e-3 absorbs that while staying far
+			// below stepBound's real-jump scale (~0.1).
+			if (rise < -1e-3) {
+				fail.("epic glide up", "value fell by % between samples % and % (expected monotone rise)".format(rise, i - 1, i));
+			};
+			if (rise > (stepBound * gap)) {
+				fail.("epic glide up", "value jumped by % (bound %) between samples % and %".format(rise, stepBound * gap, i - 1, i));
+			};
+			if ((t[i][0] > 0.2) and: { t[i][0] < 0.8 }) { between = between + 1; };
+			i = i + 1;
+		};
+		if (between < 3) {
+			fail.("epic glide up", "only % samples strictly between 0.2 and 0.8, expected >= 3".format(between));
+		};
+		if (t.last[0] < 0.99) {
+			fail.("epic glide up", "final sample % did not reach 0.99".format(t.last[0]));
+		};
+		checkOk.("epic glide up");
+	}.value;
+
+	// --- epic glide down (EPIC-02): monotone, bounded, convergent from
+	// the settled 1.0 back down to the default 10 (0.10). ---
+	{
+		var t, i, gap, drop, between = 0;
+		t = traceCtl.(~ppEpicSmoothBus.index, 2.5, { sendEpic.(10); });
+		i = 1;
+		while ({ i < t.size }) {
+			gap = t[i][1] - t[i - 1][1];
+			if (gap < 1) {
+				fail.("epic glide down", "PulseCount did not advance between samples % and %".format(i - 1, i));
+			};
+			drop = t[i - 1][0] - t[i][0];
+			// -1e-3, same reasoning as "epic glide up": absorbs residual
+			// settle-tail noise in the pre-roll samples, not a real reversal.
+			if (drop < -1e-3) {
+				fail.("epic glide down", "value rose by % between samples % and % (expected monotone non-increasing)".format(drop.neg, i - 1, i));
+			};
+			if (drop > (stepBound * gap)) {
+				fail.("epic glide down", "value dropped by % (bound %) between samples % and %".format(drop, stepBound * gap, i - 1, i));
+			};
+			if ((t[i][0] > 0.25) and: { t[i][0] < 0.85 }) { between = between + 1; };
+			i = i + 1;
+		};
+		if (between < 3) {
+			fail.("epic glide down", "only % samples strictly between 0.25 and 0.85, expected >= 3".format(between));
+		};
+		if ((t.last[0] - 0.10).abs >= 0.005) {
+			fail.("epic glide down", "final sample % is not within 0.005 of 0.10".format(t.last[0]));
+		};
+		checkOk.("epic glide down");
+	}.value;
+
+	// --- epic retarget mid-glide (EPIC-02/EPIC-03 adjacency): a second
+	// /pp/epic sent mid-glide bends from the current value with no jump,
+	// never nearly reaches the abandoned target, and settles on the new one. ---
+	{
+		var t, i, gap, change, sawAboveHalf = false, maxSample = 0;
+		t = traceCtl.(~ppEpicSmoothBus.index, 3.0, { sendEpic.(100); 0.25.wait; sendEpic.(30); });
+		i = 1;
+		while ({ i < t.size }) {
+			gap = t[i][1] - t[i - 1][1];
+			if (gap < 1) {
+				fail.("epic retarget mid-glide", "PulseCount did not advance between samples % and %".format(i - 1, i));
+			};
+			change = (t[i][0] - t[i - 1][0]).abs;
+			if (change > (stepBound * gap)) {
+				fail.("epic retarget mid-glide", "value changed by % (bound %) between samples % and %".format(change, stepBound * gap, i - 1, i));
+			};
+			if (t[i][0] > 0.5) { sawAboveHalf = true; };
+			maxSample = max(maxSample, t[i][0]);
+			i = i + 1;
+		};
+		if (sawAboveHalf.not) {
+			fail.("epic retarget mid-glide", "no sample exceeded 0.5 -- the first glide toward 100 never got under way");
+		};
+		if (maxSample >= 0.9) {
+			fail.("epic retarget mid-glide", "max sample % nearly reached the abandoned target of 1.0".format(maxSample));
+		};
+		if ((t.last[0] - 0.30).abs >= 0.005) {
+			fail.("epic retarget mid-glide", "final sample % is not within 0.005 of 0.30".format(t.last[0]));
+		};
+		checkOk.("epic retarget mid-glide");
+	}.value;
+
+	// --- EPIC clamp table (EPIC-01 boundary, one step either side, sent
+	// through the real Python CLI like Phase 1's BPM clamp table) ---
+	[
+		[150, 100, "epic clamp 150->100"],
+		[101, 100, "epic clamp 101->100"],
+		[100, 100, "epic clamp 100"],
+		[0, 0, "epic clamp 0"],
+		[-1, 0, "epic clamp -1->0"],
+		[-50, 0, "epic clamp -50->0"],
+		[37.5, 37.5, "epic float 37.5"],
+	].do({ |entry|
+		var sent = entry[0], expected = entry[1], name = entry[2];
+		var before = ~ppEpicCount;
+		var rc, elapsedCl = 0;
+		rc = sendCli.("--epic " ++ sent.asString);
+		if (rc != 0) {
+			fail.(name, "osc_client.py exited %".format(rc));
+		};
+		while ({ (~ppEpicCount == before) and: { elapsedCl < 3 } }) {
+			0.1.wait;
+			elapsedCl = elapsedCl + 0.1;
+		};
+		if (~ppEpicCount == before) {
+			fail.(name, "~ppEpicCount did not change within 3s for sent=%".format(sent));
+		};
+		if ((~epic - expected).abs >= 1e-6) {
+			fail.(name, "expected ~epic %, got %".format(expected, ~epic));
+		};
+		checkOk.(name);
+	});
+	if (waitEpicSettled.(0.375, 4).not) {
+		fail.("epic float 37.5", "smoothed EPIC bus never settled to 0.375 within 4s");
+	};
+
+	// --- epic malformed ignored (EPIC-01 input contract) ---
+	{
+		var countBefore = ~ppEpicCount;
+		var epicBefore = ~epic;
+		var ctlBefore = readCtl.(~ppEpicSmoothBus.index);
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/epic');
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/epic', "loud");
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/epic', 0.0/0.0);
+		sendCli.("--epic nan");
+		0.5.wait;
+		if (~ppEpicCount != countBefore) {
+			fail.("epic malformed ignored", "~ppEpicCount changed after malformed /pp/epic input");
+		};
+		if (~epic != epicBefore) {
+			fail.("epic malformed ignored", "~epic changed after malformed /pp/epic input");
+		};
+		if ((readCtl.(~ppEpicSmoothBus.index) - ctlBefore).abs > 0.005) {
+			fail.("epic malformed ignored", "smoothed EPIC bus moved after malformed /pp/epic input");
+		};
+		sendEpic.(30);
+		{
+			var elapsedEp = 0;
+			while ({ (~ppEpicCount == countBefore) and: { elapsedEp < 2 } }) {
+				0.1.wait;
+				elapsedEp = elapsedEp + 0.1;
+			};
+		}.value;
+		if (~ppEpicCount != (countBefore + 1)) {
+			fail.("epic malformed ignored", "expected exactly 1 apply for the valid 30 after malformed input, got %".format(~ppEpicCount - countBefore));
+		};
+		if (~epic != 30) {
+			fail.("epic malformed ignored", "expected ~epic == 30, got %".format(~epic));
+		};
+		checkOk.("epic malformed ignored");
+		sendEpic.(10);
+		if (waitEpicSettled.(0.1, 4).not) {
+			fail.("epic malformed ignored", "smoothed EPIC bus never settled back to the default 0.1 within 4s");
+		};
+	}.value;
+
 	// --- B6: node-leak bound ---
 	{
 		var maxSynths = 0, elapsed6 = 0;
@@ -876,8 +1270,12 @@ fork({
 			0.25.wait;
 			elapsed6 = elapsed6 + 0.25;
 		};
-		if (maxSynths > 20) {
-			fail.("node bound", "max synths % exceeds 20".format(maxSynths));
+		"PedalPulse smoke: max synths = %".format(maxSynths).postln;
+		// Bound raised from 20 to 22: the two persistent FX-group synths
+		// (\ppEpicSmoother, \ppFx) are always counted now; the per-note
+		// bound is unchanged.
+		if (maxSynths > 22) {
+			fail.("node bound", "max synths % exceeds 22".format(maxSynths));
 		};
 		checkOk.("node bound");
 	}.value;
@@ -896,6 +1294,24 @@ fork({
 			probe.free;
 			peakVal;
 		};
+
+		// --- fx headroom: at the default EPIC (10, Recovery), the post-FX
+		// peak stays under the limiter ceiling, so the limiter stays a
+		// safety net rather than doing constant work at ordinary settings.
+		// Run before "mix headroom" so EPIC is still the default 10. ---
+		peakVal = 0.0;
+		{
+			var probe = Synth.after(~ppFxGroup, \ppPeakProbe, [\in, ~ppFxBus.index]);
+			4.wait;
+			probe.free;
+		}.value;
+		"PedalPulse smoke: post-FX peak at EPIC 10 = %".format(peakVal).postln;
+		if (peakVal > 0.891) {
+			fail.("fx headroom", "post-FX peak % at EPIC 10 exceeds 0.891".format(peakVal));
+		};
+		checkOk.("fx headroom");
+		// Informational only (Phase 4 soak), not an assertion.
+		"PedalPulse smoke: server CPU avg % peak %".format(s.avgCPU, s.peakCPU).postln;
 
 		// --- mix headroom: the pre-limiter sum on ~ppMixBus stays under the
 		// limiter ceiling at default gain, so the limiter is a safety net
@@ -926,25 +1342,51 @@ fork({
 		peak1 = measurePeak.(0, 2);
 		"PedalPulse smoke: peak at preGain 1 = %".format(peak1).postln;
 
+		// Run the limiter-ceiling check at the hottest FX state (EPIC 100)
+		// so the existing preGain-8 post line reports the EPIC 100 level.
+		sendEpic.(100);
+		if (waitEpicSettled.(1.0, 4).not) {
+			fail.("limiter ceiling", "smoothed EPIC bus never settled to 1.0 within 4s");
+		};
 		~ppMasterSynth.set(\preGain, 8);
 		0.5.wait;
 		peak8 = measurePeak.(0, 2);
 		if ((peak8 > 0.5).not or: { peak8 > 0.90 }) {
-			fail.("limiter ceiling", "peak % with preGain 8 (expected in (0.5, 0.90])".format(peak8));
+			fail.("limiter ceiling", "peak % with preGain 8 at EPIC 100 (expected in (0.5, 0.90])".format(peak8));
 		};
 		checkOk.("limiter ceiling");
 
 		~ppMasterSynth.set(\preGain, ~preGain);
+		sendEpic.(10);
+		if (waitEpicSettled.(0.1, 4).not) {
+			fail.("limiter ceiling", "smoothed EPIC bus never settled back to the default 0.1 within 4s");
+		};
 	}.value;
 
 	// --- B8: re-evaluation idempotence (ENG-04 concurrency) ---
 	{
 		var oldClock = ~clock;
 		var oldMaster = ~ppMasterSynth;
+		var oldFx, oldSmoother, oldFxGroup, oldBuses;
 		var bpmBeforeReload = ~bpm;
 		var elapsed8, countBefore;
 
-		NodeWatcher.register(oldMaster);
+		NodeWatcher.register(oldMaster, true);
+
+		// EPIC-01/02 leak check: settle on a non-default value so "no glide
+		// from 0, no jump to the default on re-evaluation" is discriminating,
+		// then capture every FX-related node/group/bus to prove none of it
+		// survives the teardown below.
+		sendEpic.(75);
+		if (waitEpicSettled.(0.75, 4).not) {
+			fail.("fx re-evaluation", "smoothed EPIC bus never settled to 0.75 within 4s");
+		};
+		oldFx = ~ppFxSynth;
+		oldSmoother = ~ppEpicSmoother;
+		oldFxGroup = ~ppFxGroup;
+		oldBuses = [~ppFxBus, ~ppEpicBus, ~ppEpicSmoothBus];
+		NodeWatcher.register(oldFx, true);
+		NodeWatcher.register(oldSmoother, true);
 
 		~ppReady = false;
 		(root +/+ "supercollider/main.scd").load;
@@ -1008,6 +1450,38 @@ fork({
 		};
 
 		checkOk.("re-evaluation");
+
+		// --- fx re-evaluation (EPIC-01/02 Pitfall 2): the teardown frees
+		// the previous FX-related synths, group and buses -- none of it
+		// survives a re-evaluation, and the preserved EPIC value reaches
+		// the new smoothed bus immediately, with no glide from 0. ---
+		if (oldFx.isPlaying) {
+			fail.("fx re-evaluation", "old FX synth still playing after reload");
+		};
+		if (oldSmoother.isPlaying) {
+			fail.("fx re-evaluation", "old EPIC smoother still playing after reload");
+		};
+		oldBuses.do { |bus|
+			if (bus.index.notNil) {
+				fail.("fx re-evaluation", "old bus % still has a non-nil index % after reload (Bus.free sets it to nil)".format(bus, bus.index));
+			};
+		};
+		if (~ppFxSynth.nodeID == oldFx.nodeID) {
+			fail.("fx re-evaluation", "FX synth node ID unchanged after reload -- not actually replaced");
+		};
+		if (~ppEpicSmoother.nodeID == oldSmoother.nodeID) {
+			fail.("fx re-evaluation", "EPIC smoother node ID unchanged after reload -- not actually replaced");
+		};
+		if (groupChildDefs.(~ppFxGroup) != [\ppEpicSmoother, \ppFx]) {
+			fail.("fx re-evaluation", "~ppFxGroup children % != [ppEpicSmoother, ppFx] after reload".format(groupChildDefs.(~ppFxGroup)));
+		};
+		if (~epic != 75) {
+			fail.("fx re-evaluation", "~epic % != 75 after reload (last value should be preserved)".format(~epic));
+		};
+		if ((readCtl.(~ppEpicSmoothBus.index) - 0.75).abs >= 0.01) {
+			fail.("fx re-evaluation", "smoothed EPIC bus % is not within 0.01 of 0.75 immediately after reload (no glide from 0, no jump to the default)".format(readCtl.(~ppEpicSmoothBus.index)));
+		};
+		checkOk.("fx re-evaluation");
 	}.value;
 
 	"SMOKE PASS".postln;

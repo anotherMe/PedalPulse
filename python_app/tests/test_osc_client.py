@@ -145,7 +145,9 @@ def test_send_play_coerces_bool_to_int():
         datagram, _addr = sock.recvfrom(4096)
         message = OscMessage(datagram)
         assert list(message.params) == [1]
-        assert isinstance(message.params[0], int)
+        # WR-02: isinstance() can't tell a coerced int from an uncoerced
+        # bool (bool is an int subclass) -- assert the exact type instead.
+        assert type(message.params[0]) is int
     finally:
         sock.close()
 
@@ -180,3 +182,123 @@ def test_cli_main_requires_bpm_or_play():
     with pytest.raises(SystemExit) as exc_info:
         osc_client.main(["--port", "57199"])
     assert exc_info.value.code == 2
+
+
+def test_send_epic_delivers_decodable_osc_message_over_real_socket():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_epic(75) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/epic"
+        assert list(message.params) == [75.0]
+        assert type(message.params[0]) is float
+    finally:
+        sock.close()
+
+
+def test_send_epic_delivers_unclamped_value():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_epic(150) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert list(message.params) == [150.0]
+    finally:
+        sock.close()
+
+
+def test_send_epic_returns_false_on_oserror(capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+    with patch.object(client._client, "send_message", side_effect=OSError("boom")):
+        assert client.send_epic(50) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "boom" in err
+
+
+def test_send_bpm_and_send_epic_return_false_on_overflow_error(capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+
+    assert client.send_bpm(1e300) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "OscClient: failed to send /pp/bpm" in err
+
+    assert client.send_epic(1e300) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "OscClient: failed to send /pp/epic" in err
+
+
+def test_send_play_returns_false_on_build_error(capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+
+    assert client.send_play(10**20) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "OscClient: failed to send /pp/play" in err
+
+
+def test_cli_main_sends_epic(capsys):
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        rc = osc_client.main(["--epic", "100", "--port", str(port)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert f"sent /pp/epic 100.0 to 127.0.0.1:{port}" in out
+
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/epic"
+        assert list(message.params) == [100.0]
+    finally:
+        sock.close()
+
+
+def test_cli_main_delivers_nan_epic():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        rc = osc_client.main(["--epic", "nan", "--port", str(port)])
+        assert rc == 0
+
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        import math
+
+        assert math.isnan(message.params[0])
+    finally:
+        sock.close()
+
+
+def test_cli_main_sends_bpm_epic_play_in_order():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        rc = osc_client.main(["120", "--epic", "50", "--play", "1", "--port", str(port)])
+        assert rc == 0
+
+        datagram1, _addr = sock.recvfrom(4096)
+        message1 = OscMessage(datagram1)
+        assert message1.address == "/pp/bpm"
+        assert list(message1.params) == [120.0]
+
+        datagram2, _addr = sock.recvfrom(4096)
+        message2 = OscMessage(datagram2)
+        assert message2.address == "/pp/epic"
+        assert list(message2.params) == [50.0]
+
+        datagram3, _addr = sock.recvfrom(4096)
+        message3 = OscMessage(datagram3)
+        assert message3.address == "/pp/play"
+        assert list(message3.params) == [1]
+    finally:
+        sock.close()
