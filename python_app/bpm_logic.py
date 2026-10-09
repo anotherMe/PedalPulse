@@ -157,7 +157,7 @@ class BpmController:
         changed = self._set(parsed)
         if force or changed:
             self._send_now()
-        else:
+        if not changed:
             self._notify()
         return True
 
