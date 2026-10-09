@@ -784,6 +784,86 @@ fork({
 		checkOk.("play malformed ignored");
 	}.value;
 
+	// --- stop cuts held pad (T-02-16): Stop empties the instrument group
+	// well inside the pad's own natural tail (dur 4, legato 0.9, 1.2s
+	// release -- about 3s at 100 BPM). "FAILURE IN SERVER /n_set Node N
+	// not found" lines in the log after this Stop are expected (same race
+	// as Plan 01's Stop broadcasts) and are not failures. ---
+	{
+		var stopAt, count, elapsedSc, naturalEnd, zeroAt = nil;
+		sendBpm.(100);
+		if (waitForTempo.(100, 12).not) {
+			fail.("stop cuts held pad", "glide never landed on 100 BPM within 12s");
+		};
+		// Wait until 0.35s after the next bar line, so the bar's pad chord
+		// has already started on the server.
+		((~clock.timeToNextBeat(4) * ~clock.beatDur) + 0.35).wait;
+		stopAt = Main.elapsedTime;
+		sendPlay.(0);
+		count = instrChildCount.();
+		elapsedSc = 0;
+		while ({ (count != 0) and: { elapsedSc < 4 } }) {
+			0.1.wait;
+			elapsedSc = elapsedSc + 0.1;
+			count = instrChildCount.();
+		};
+		if (count == 0) { zeroAt = Main.elapsedTime };
+		if (zeroAt.isNil) {
+			fail.("stop cuts held pad", "instrument group never emptied within 4s after stop");
+		};
+		if ((zeroAt - stopAt) > 2.0) {
+			fail.("stop cuts held pad", "instrument group took % s to empty, expected <= 2.0 s".format(zeroAt - stopAt));
+		};
+		// This must follow the pad Pbindef/SynthDef (\dur 4, \legato 0.9,
+		// 1.2s release) if the pad is retuned -- it proves the check is
+		// actually discriminating (the natural tail is well past 2.4s).
+		naturalEnd = (4 * 0.9 * ~clock.beatDur) + 1.2 - 0.35;
+		if (naturalEnd <= 2.4) {
+			fail.("stop cuts held pad", "check not discriminating: naturalEnd % <= 2.4".format(naturalEnd));
+		};
+		sendPlay.(1);
+		if (waitForPlaying.(true, 2).not) {
+			fail.("stop cuts held pad", "~ppPlaying did not become true again after /pp/play 1");
+		};
+		checkOk.("stop cuts held pad");
+	}.value;
+
+	// --- stop catches in-flight notes (T-02-16): a Stop scheduled at the
+	// exact logical time of a bar line still empties the instrument group,
+	// whichever order it and that bar's already-in-flight notes land in.
+	// An unreleased in-flight pad chord would ring for about 3.4s at
+	// 100 BPM. ---
+	{
+		var stopAt, count, elapsedSc, playingElapsed = 0;
+		~clock.schedAbs(~clock.nextTimeOnGrid(4), { ~ppStop.value; nil });
+		while ({ ~ppPlaying and: { playingElapsed < 4 } }) {
+			0.1.wait;
+			playingElapsed = playingElapsed + 0.1;
+		};
+		if (~ppPlaying) {
+			fail.("stop catches in-flight notes", "~ppPlaying never became false within 4s of the scheduled Stop");
+		};
+		stopAt = Main.elapsedTime;
+		count = instrChildCount.();
+		elapsedSc = 0;
+		while ({ (count != 0) and: { elapsedSc < 4 } }) {
+			0.1.wait;
+			elapsedSc = elapsedSc + 0.1;
+			count = instrChildCount.();
+		};
+		if (count != 0) {
+			fail.("stop catches in-flight notes", "instrument group still has % children % s after stop".format(count, Main.elapsedTime - stopAt));
+		};
+		if ((Main.elapsedTime - stopAt) > 2.0) {
+			fail.("stop catches in-flight notes", "instrument group took % s to empty, expected <= 2.0 s".format(Main.elapsedTime - stopAt));
+		};
+		sendPlay.(1);
+		if (waitForPlaying.(true, 2).not) {
+			fail.("stop catches in-flight notes", "~ppPlaying did not become true again after /pp/play 1");
+		};
+		checkOk.("stop catches in-flight notes");
+	}.value;
+
 	// --- B6: node-leak bound ---
 	{
 		var maxSynths = 0, elapsed6 = 0;
