@@ -31,7 +31,7 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 - [ ] **GUI-01**: User can set BPM via a slider, a numeric entry field, and +/- nudge buttons, all kept in sync
 - [ ] **GUI-02**: User can start and stop the music from the GUI
 - [ ] **GUI-03**: User can adjust master volume from the GUI
-- [ ] **GUI-04**: The Tkinter app launches on macOS with a working Tcl/Tk 8.6; on an incompatible Tk it shows a clear warning instead of failing silently
+- [x] **GUI-04**: The Tkinter app launches on macOS with a working Tcl/Tk 8.6; on an incompatible Tk it shows a clear warning instead of failing silently
 
 ### Link
 
@@ -95,7 +95,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GUI-01 | Phase 1 | Pending |
 | GUI-02 | Phase 2 | Pending |
 | GUI-03 | Phase 3 | Pending |
-| GUI-04 | Phase 1 | Pending |
+| GUI-04 | Phase 1 | Complete |
 | LINK-01 | Phase 1 | Pending |
 | LINK-02 | Phase 4 | Pending |
 | LINK-03 | Phase 4 | Pending |
