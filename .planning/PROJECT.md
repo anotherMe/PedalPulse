@@ -17,16 +17,17 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 - ✓ Master limiter on the output bus holds peaks below −1 dBFS — Phase 1
 - ✓ Tkinter GUI with a BPM control: slider, numeric entry, ±1/±5 nudge buttons and arrow keys, kept in sync — Phase 1
 - ✓ GUI sends BPM changes to SuperCollider in real time over OSC (send on slider release, 150 ms nudge debounce) — Phase 1
+- ✓ SuperCollider engine plays a continuous melodic techno / progressive trance groove: kick, hat, clap, bass, 16th-note arpeggio, pad, all on one TempoClock (fixed loop) — Phase 2
+- ✓ BPM changes glide over ~2 bars from a beat boundary, retarget smoothly mid-glide, clamped 60–180 — Phase 2
+- ✓ Start/Stop the music from the GUI (`/pp/play <int>`): clean gate-release Stop, bar-synced Start — Phase 2
 
 ### Active
 
-- [ ] SuperCollider engine generates continuous melodic techno / progressive trance: drums, bass, arpeggios, pads
 - [ ] Long-session stability (60+ min without node/CPU growth) — master limiter already shipped in Phase 1; soak test in Phase 4
-- [ ] BPM changes ramp smoothly over a few bars (no audible jolt), retargeting safely mid-ramp, clamped to 60–180
 - [ ] Engine listens for `/epic` over OSC (the `/pp/bpm` OSCdef pattern from Phase 1 extends to it)
 - [ ] EPIC level (0–100) maps to brightness/energy: filter cutoff, drive, reverb/delay amount, synth richness — with smoothed (lagged) changes
 - [ ] Tkinter GUI with EPIC control: named zone preset buttons (Recovery / Endurance / Tempo / Threshold / VO2)
-- [ ] Basic transport/volume control from the GUI (start/stop music, master volume)
+- [ ] Master volume control from the GUI (start/stop shipped in Phase 2)
 - [ ] Connection indicator in the GUI driven by an engine heartbeat (UDP OSC fails silently otherwise)
 - [ ] GUI displays the engine's actual current BPM (mid-ramp) and EPIC
 
@@ -66,15 +67,18 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 | Manual BPM setting instead of cadence→BPM formula | User wants direct control; cadence mapping can come later | ✓ Good — Phase 1 UAT confirmed the manual BPM chain end to end |
 | EPIC = brightness/energy (filters, drive, FX) for v1 | Most direct, audible mapping; density/harmony/builds deferred | — Pending |
 | EPIC control = zone preset buttons only in v1 | Quick hits between intervals; fine-tune slider deferred to v2 | — Pending |
-| Fixed loop music for v1, generative evolution in v2 | v1 is a tech proof of the control chain | — Pending |
+| Fixed loop music for v1, generative evolution in v2 | v1 is a tech proof of the control chain | ✓ Good — Phase 2 six-layer fixed loop accepted by ear as melodic techno / trance |
 | Add heartbeat-based connection indicator | Research: UDP OSC fails silently | — Pending |
-| Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | — Pending |
+| Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | ✓ Good — Phase 2: one long-lived `~ppRampStepper` is the sole tempo writer (8-beat glide, beat-aligned engage, mid-glide retarget); UAT confirmed no jolt |
 | Tkinter for GUI | User preference, zero extra deps | ✓ Good — Phase 1 window works under Tk 9.0 |
 | Start SC and Python separately | Simpler; avoids process management in v1 | ✓ Good — `main.scd` in the SC IDE + `./run.sh` |
 | No Zwift integration in v1 | API availability/suitability unknown | — Pending |
 | Accept Tk 8.6 and 9.x; project venv is python3.13 with Tk 9.0 via `./run.sh` | Research advised avoiding Tk 9.0, but the real Tk 9.0.3 widgets pass a widget-level smoke test; the startup gate only rejects Tk < 8.6 or a missing `_tkinter` | ✓ Good — Phase 1 |
 | OSC address `/pp/bpm` with loopback-only `srcID`, engine-side clamp and latest-wins next-beat apply | Engine validates independently of the GUI; bursts cost one apply per beat | ✓ Good — Phase 1 (19-check headless smoke test) |
 | GUI sends BPM on slider release and debounces nudges/keys at 150 ms | Prevents flooding the engine during drags and key auto-repeat | ✓ Good — Phase 1 |
+| Transport is `/pp/play <int>` (1 start, 0 stop), loopback-only and idempotent; Stop broadcasts `\gate, 0` to the instrument group (immediate + guarded second broadcast after `s.latency`) instead of freeing nodes | Every voice ends through its own release envelope (no click), in-flight notes are caught; occasional harmless `FAILURE IN SERVER /n_set Node N not found` on Stop is expected | ✓ Good — Phase 2 (UAT passed) |
+| `~ppLayers` is the single list of groove layers; Start uses `doReset: true` + `quant: 4` | Teardown, Start/Stop and smoke checks iterate one list; layers re-enter in phase on the bar | ✓ Good — Phase 2 |
+| GUI `PlayController` sends an int only on a real state change, no debounce; button takes no focus | Engine is idempotent so rapid clicks are harmless; no interference with arrow-key BPM shortcuts | ✓ Good — Phase 2 |
 
 ## Evolution
 
@@ -94,4 +98,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-09 after Phase 1*
+*Last updated: 2026-10-09 after Phase 2*

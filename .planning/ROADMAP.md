@@ -13,7 +13,7 @@ PedalPulse is built as four vertical slices. Each one adds a capability the ride
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Tempo Link Skeleton** - Single sclang entry file plays a basic loop; Tkinter BPM control changes its tempo over OSC (completed 2026-10-09)
-- [ ] **Phase 2: Full Groove & Smooth Tempo** - Drums, bass, arp and pad play together, glide beat-synchronously to new BPMs, and start/stop from the GUI
+- [x] **Phase 2: Full Groove & Smooth Tempo** - Drums, bass, arp and pad play together, glide beat-synchronously to new BPMs, and start/stop from the GUI (completed 2026-10-09)
 - [ ] **Phase 3: EPIC Zones & Volume** - Five zone preset buttons make the music brighter and more energetic; master volume from the GUI, never clipping
 - [ ] **Phase 4: Live Feedback & Ride Endurance** - Heartbeat connection indicator, live engine BPM/EPIC display, and 60+ minute stability
 
@@ -58,7 +58,7 @@ Plans:
   3. When the user changes BPM again mid-glide, the music retargets from its current tempo without restarting or jumping
   4. User presses Stop in the app and the music stops cleanly (no hanging notes); pressing Start brings the full groove back in time
 
-**Plans:** 4/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -111,6 +111,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Tempo Link Skeleton | 3/3 | Complete    | 2026-10-09 |
-| 2. Full Groove & Smooth Tempo | 4/4 | In Progress | - |
+| 2. Full Groove & Smooth Tempo | 4/4 | Complete    | 2026-10-09 |
 | 3. EPIC Zones & Volume | 0/TBD | Not started | - |
 | 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |
