@@ -29,3 +29,11 @@ EPIC_ZONES = {
     "VO2": 100,
 }
 EPIC_DEFAULT_ZONE = "Recovery"
+
+# GUI-03: the app's master volume scale. The engine maps this 0-100 range
+# to gain and clamps it independently (supercollider/main.scd
+# ~ppVolumeAmp). The default is deliberately below the maximum, so
+# launching the app never jumps the engine to full volume.
+VOLUME_MIN = 0
+VOLUME_MAX = 100
+VOLUME_DEFAULT = 80
