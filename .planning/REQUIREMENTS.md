@@ -9,7 +9,7 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 
 ### Engine
 
-- [ ] **ENG-01**: When started, the engine plays drums, bass, arpeggio and pad continuously in a melodic techno / progressive trance style on a dedicated TempoClock (fixed loop patterns are acceptable for v1)
+- [x] **ENG-01**: When started, the engine plays drums, bass, arpeggio and pad continuously in a melodic techno / progressive trance style on a dedicated TempoClock (fixed loop patterns are acceptable for v1)
 - [x] **ENG-02**: Master output never clips — a limiter on the master bus holds peaks even at maximum EPIC and volume
 - [ ] **ENG-03**: User can leave the engine playing for 60+ minutes without audio dropouts and without CPU or synth node count growing (every enveloped synth frees itself)
 - [x] **ENG-04**: User starts the engine from a single sclang entry file, which waits for server boot and posts the OSC port it is listening on
@@ -82,7 +82,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENG-01 | Phase 2 | Pending |
+| ENG-01 | Phase 2 | Complete |
 | ENG-02 | Phase 1 | Complete |
 | ENG-03 | Phase 4 | Pending |
 | ENG-04 | Phase 1 | Complete |
