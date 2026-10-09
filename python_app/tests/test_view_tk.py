@@ -15,7 +15,7 @@ import tkinter as tk
 
 import pytest
 
-from bpm_logic import BpmController
+from bpm_logic import BpmController, PlayController
 from view import BpmWindow
 
 
@@ -60,11 +60,23 @@ def tk_root():
     root.destroy()
 
 
-def _make_window(root: tk.Tk, status_text: str = "Sending to test:1"):
+def _build_window(root: tk.Tk, status_text: str):
     sent: list[float] = []
     controller = BpmController(send=sent.append, schedule=root.after, cancel=root.after_cancel)
-    window = BpmWindow(root, controller, status_text)
+    play_sent: list[int] = []
+    play = PlayController(send=play_sent.append)
+    window = BpmWindow(root, controller, status_text, play_controller=play)
+    return window, controller, sent, play, play_sent
+
+
+def _make_window(root: tk.Tk, status_text: str = "Sending to test:1"):
+    window, controller, sent, _play, _play_sent = _build_window(root, status_text)
     return window, controller, sent
+
+
+def _make_window_with_play(root: tk.Tk, status_text: str = "Sending to test:1"):
+    window, _controller, _sent, play, play_sent = _build_window(root, status_text)
+    return window, play, play_sent
 
 
 # --- 1. Build -----------------------------------------------------------
@@ -199,3 +211,47 @@ def test_on_top_toggle(tk_root):
 
     window.on_top_check.invoke()
     assert bool(tk_root.attributes("-topmost")) is False
+
+
+# --- 9. Start/Stop button (GUI-02) ------------------------------------------
+
+
+def test_play_button_toggles_with_one_send_per_click(tk_root):
+    window, play, play_sent = _make_window_with_play(tk_root)
+
+    assert window.play_button["text"] == "Stop"
+    assert play_sent == []
+
+    window.play_button.invoke()
+    assert window.play_button["text"] == "Start"
+    assert play_sent == [0]
+
+    window.play_button.invoke()
+    assert window.play_button["text"] == "Stop"
+    assert play_sent == [0, 1]
+
+
+def test_play_button_follows_controller_state(tk_root):
+    window, play, play_sent = _make_window_with_play(tk_root)
+
+    play.set_playing(False)
+    assert window.play_button["text"] == "Start"
+    assert play_sent == [0]
+
+    play.set_playing(False)
+    assert play_sent == [0]
+
+
+def test_play_button_takes_no_focus(tk_root):
+    window, controller, sent, play, _play_sent = _build_window(tk_root, "Sending to test:1")
+
+    assert str(window.play_button["takefocus"]) == "0"
+
+    window.play_button.invoke()
+
+    before = controller.value
+    window.handle_nudge_key(1)
+    pump(tk_root, 300)
+
+    assert controller.value == before + 1
+    assert sent == [float(before + 1)]
