@@ -26,6 +26,11 @@ def clamp_bpm(value: float) -> int:
     return max(config.BPM_MIN, min(config.BPM_MAX, rounded))
 
 
+def parse_bpm_entry(text: str) -> int | None:
+    """RED stub -- real implementation added in GREEN."""
+    return None
+
+
 class Debouncer:
     """Cancel-and-reschedule debounce wrapper around injected schedule/cancel."""
 
@@ -110,6 +115,10 @@ class BpmController:
         new_value = clamp_bpm(self._value + delta)
         if self._set(new_value):
             self._debouncer.trigger(self._send_now)
+
+    def apply_entry(self, text: str, *, force: bool) -> bool:
+        """RED stub -- real implementation added in GREEN."""
+        return False
 
     def send_initial(self) -> None:
         """Send the current value once, unconditionally (D-23)."""
