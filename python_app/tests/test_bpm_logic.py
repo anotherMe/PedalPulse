@@ -7,7 +7,7 @@ import math
 import pytest
 
 import config
-from bpm_logic import BpmController, Debouncer, clamp_bpm
+from bpm_logic import BpmController, Debouncer, clamp_bpm, parse_bpm_entry
 
 
 class FakeScheduler:
@@ -238,3 +238,120 @@ def test_debouncer_cancel_prevents_fire():
     scheduler.advance(150)
     assert calls == []
     assert debouncer.pending is False
+
+
+# --- parse_bpm_entry (D-09, D-10) --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("150", 150),
+        (" 125 ", 125),
+        ("130.5", 131),  # half up
+        ("130.4", 130),
+        ("300", 180),  # snaps to upper bound
+        ("10", 60),  # snaps to lower bound
+        ("-5", 60),  # snaps to lower bound
+        ("1e3", 180),  # scientific notation, snaps to upper bound
+    ],
+)
+def test_parse_bpm_entry_valid(text, expected):
+    assert parse_bpm_entry(text) == expected
+
+
+@pytest.mark.parametrize("text", ["abc", "", "   ", "nan", "inf", "-inf"])
+def test_parse_bpm_entry_invalid_returns_none(text):
+    assert parse_bpm_entry(text) is None
+
+
+# --- BpmController.apply_entry (D-10, D-21) ----------------------------------
+
+
+def test_apply_entry_force_true_from_different_value_sends_once():
+    controller, sent, _scheduler = _make_controller()
+    notified = []
+    controller.add_listener(notified.append)
+
+    result = controller.apply_entry("150", force=True)
+
+    assert result is True
+    assert notified == [150]
+    assert sent == [150.0]
+
+
+def test_apply_entry_force_true_same_value_sends_again():
+    controller, sent, _scheduler = _make_controller()
+    controller.apply_entry("150", force=True)
+    sent.clear()
+
+    result = controller.apply_entry("150", force=True)
+
+    assert result is True
+    assert sent == [150.0]
+
+
+def test_apply_entry_force_false_unchanged_value_notifies_but_does_not_send():
+    controller, sent, _scheduler = _make_controller()
+    controller.apply_entry("150", force=True)
+    sent.clear()
+    notified = []
+    controller.add_listener(notified.append)
+
+    result = controller.apply_entry("150", force=False)
+
+    assert result is True
+    assert sent == []
+    assert notified == [150]
+
+
+def test_apply_entry_force_false_changed_value_sends_once():
+    controller, sent, _scheduler = _make_controller()
+    controller.apply_entry("150", force=True)
+    sent.clear()
+
+    result = controller.apply_entry("151", force=False)
+
+    assert result is True
+    assert sent == [151.0]
+
+
+@pytest.mark.parametrize("text", ["abc", "", "nan"])
+def test_apply_entry_invalid_text_reverts_without_send(text):
+    controller, sent, _scheduler = _make_controller()
+    controller.apply_entry("151", force=True)
+    sent.clear()
+    notified = []
+    controller.add_listener(notified.append)
+
+    result = controller.apply_entry(text, force=True)
+
+    assert result is False
+    assert notified == [151]
+    assert sent == []
+
+
+def test_apply_entry_out_of_range_snaps_and_sends():
+    controller, sent, _scheduler = _make_controller()
+
+    result = controller.apply_entry("300", force=True)
+
+    assert result is True
+    assert controller.value == 180
+    assert sent == [180.0]
+
+
+def test_apply_entry_cancels_pending_nudge_debounce():
+    controller, sent, scheduler = _make_controller()
+
+    controller.nudge(1)
+    assert scheduler._pending  # debounce is pending
+    assert sent == []
+
+    result = controller.apply_entry("140", force=True)
+
+    assert result is True
+    assert sent == [140.0]
+
+    scheduler.advance(300)
+    assert sent == [140.0]  # no further send from the cancelled nudge
