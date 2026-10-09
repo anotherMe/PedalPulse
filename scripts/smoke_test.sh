@@ -34,8 +34,8 @@ elif command -v gtimeout >/dev/null 2>&1; then
 	TIMEOUT_CMD="gtimeout 150"
 fi
 
-$TIMEOUT_CMD "$SCLANG" -D supercollider/smoke_test.scd > "$LOG" 2>&1
-rc=$?
+rc=0
+$TIMEOUT_CMD "$SCLANG" -D supercollider/smoke_test.scd > "$LOG" 2>&1 || rc=$?
 
 cat "$LOG"
 
