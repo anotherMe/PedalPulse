@@ -85,14 +85,14 @@ Plans:
   3. Switching zones glides smoothly to the new energy level with no stepping, zipper noise or clicks
   4. User adjusts master volume from the app and loudness changes smoothly; with VO2 selected and volume at maximum, the output still never clips
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
 - [x] 03-01-PLAN.md — EPIC tracer: OscClient.send_epic + --epic CLI → /pp/epic → one Lag.kr smoother → one \ppFx synth (drive, filter, richness, reverb) before the limiter; glide, clamp, validation and leak-free re-evaluation proven headlessly (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 03-02-PLAN.md — Five zone buttons in the app: EpicController (test-first), zone row with visible selection, initial zone sent at launch, Phase 1 WR-01 arrow-key fix, zones listening check (wave 2)
+- [x] 03-02-PLAN.md — Five zone buttons in the app: EpicController (test-first), zone row with visible selection, initial zone sent at launch, Phase 1 WR-01 arrow-key fix, zones listening check (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 03-03-PLAN.md — Master volume in the engine: OscClient.send_volume + --volume → /pp/volume → lagged, tapered gain inside \ppMaster before the limiter; VO2 at max volume never clips (wave 3)
@@ -126,5 +126,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Tempo Link Skeleton | 3/3 | Complete    | 2026-10-09 |
 | 2. Full Groove & Smooth Tempo | 4/4 | Complete    | 2026-10-09 |
-| 3. EPIC Zones & Volume | 1/4 | In Progress | - |
+| 3. EPIC Zones & Volume | 2/4 | In Progress | - |
 | 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |
