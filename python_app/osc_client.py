@@ -1,14 +1,17 @@
 """Send-only OSC client for the PedalPulse Python control app (D-24).
 
-The engine owns clamping (TEMPO-03, D-08): this module sends BPM values
-unclamped and lets supercollider/main.scd's OSCdef(\\pp_bpm) decide what to
-do with them. This also doubles as the raw-send CLI used by the smoke test
-and by manual D-08 engine-clamp verification, since it can send any float
-(including out-of-range values, "nan", "inf") bypassing the GUI entirely.
+The engine owns clamping (TEMPO-03, D-08): this module sends BPM/EPIC values
+unclamped and lets supercollider/main.scd's OSCdef(\\pp_bpm)/OSCdef(\\pp_epic)
+decide what to do with them. This also doubles as the raw-send CLI used by
+the smoke test and by manual D-08 engine-clamp verification, since it can
+send any float (including out-of-range values, "nan", "inf") bypassing the
+GUI entirely.
 
 The client also sends /pp/play <int> (1 = start, 0 = stop) for the
 transport, validated and applied by supercollider/main.scd's
-OSCdef(\\pp_play).
+OSCdef(\\pp_play), and /pp/epic <float> (0-100, unclamped) for the EPIC
+energy level (EPIC-01/EPIC-02), validated and applied by
+OSCdef(\\pp_epic).
 """
 
 from __future__ import annotations
@@ -17,11 +20,12 @@ import argparse
 import sys
 
 import config
+from pythonosc.osc_message_builder import BuildError
 from pythonosc.udp_client import SimpleUDPClient
 
 
 class OscClient:
-    """Thin wrapper around pythonosc's SimpleUDPClient for /pp/bpm and /pp/play sends."""
+    """Thin wrapper around pythonosc's SimpleUDPClient for /pp/bpm, /pp/play and /pp/epic sends."""
 
     def __init__(self, host: str = config.OSC_HOST, port: int = config.OSC_PORT) -> None:
         self.host = host
@@ -37,12 +41,17 @@ class OscClient:
 
         UDP is connectionless, so a missing listener does not raise -- but
         send_message can still raise OSError (e.g. no route to host, or a
-        socket-level failure). Catch it so a GUI never crashes when the
-        engine is absent; return False instead.
+        socket-level failure). It can also raise OverflowError (a float
+        beyond float32 range, e.g. 1e300, raised by python-osc's packer
+        before any socket I/O) or python-osc's own BuildError (an argument
+        that cannot be packed into its wire type, e.g. a huge int --
+        Phase 2 review WR-01). Catch all three so a GUI never crashes when
+        the engine is absent or the value is pathological; return False
+        instead.
         """
         try:
             self._client.send_message(config.OSC_BPM_ADDRESS, float(bpm))
-        except OSError as exc:
+        except (OSError, OverflowError, BuildError) as exc:
             print(f"OscClient: failed to send /pp/bpm {bpm} to {self.target}: {exc}", file=sys.stderr)
             return False
         return True
@@ -54,28 +63,51 @@ class OscClient:
         bool as the OSC True/False type tag with no payload, which sclang's
         OSCdef(\\pp_play) would not see as a number. Sent raw -- the engine
         is the validator (same send-only, send-raw contract as send_bpm).
+        Catches (OSError, OverflowError, BuildError) for the same reasons as
+        send_bpm.
         """
         try:
             self._client.send_message(config.OSC_PLAY_ADDRESS, int(playing))
-        except OSError as exc:
+        except (OSError, OverflowError, BuildError) as exc:
             print(f"OscClient: failed to send /pp/play {playing} to {self.target}: {exc}", file=sys.stderr)
+            return False
+        return True
+
+    def send_epic(self, epic: float) -> bool:
+        """Send config.OSC_EPIC_ADDRESS with float(epic), unclamped.
+
+        Sent raw -- the engine clamps 0-100 independently of the GUI
+        (EPIC-01 boundary). Catches (OSError, OverflowError, BuildError) for
+        the same reasons as send_bpm.
+        """
+        try:
+            self._client.send_message(config.OSC_EPIC_ADDRESS, float(epic))
+        except (OSError, OverflowError, BuildError) as exc:
+            print(f"OscClient: failed to send /pp/epic {epic} to {self.target}: {exc}", file=sys.stderr)
             return False
         return True
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Raw-send CLI: python python_app/osc_client.py [BPM ...] [--play 0|1] [--host H] [--port P].
+    """Raw-send CLI: python python_app/osc_client.py [BPM ...] [--epic F] [--play 0|1] [--host H] [--port P].
 
     Sends BPM value(s) in order, raw and unclamped (floats including "nan"
     and "inf" are accepted on purpose -- this is the D-08 test script for
-    verifying the engine clamps independently of the GUI), then sends
-    /pp/play if --play was given. At least one BPM value or --play is
-    required.
+    verifying the engine clamps independently of the GUI), then /pp/epic if
+    --epic was given, then /pp/play if --play was given. At least one BPM
+    value, --epic or --play is required.
     """
     parser = argparse.ArgumentParser(
-        description="Send raw /pp/bpm and/or /pp/play OSC messages to the PedalPulse engine."
+        description="Send raw /pp/bpm, /pp/epic and/or /pp/play OSC messages to the PedalPulse engine."
     )
     parser.add_argument("bpm", nargs="*", type=float, help="BPM value(s) to send, in order")
+    parser.add_argument(
+        "--epic",
+        type=float,
+        metavar="0-100",
+        default=None,
+        help="send /pp/epic with this float after any BPM values; sent raw, the engine clamps 0-100",
+    )
     parser.add_argument(
         "--play",
         type=int,
@@ -87,8 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=config.OSC_PORT, help="Target port (default: %(default)s)")
     args = parser.parse_args(argv)
 
-    if not args.bpm and args.play is None:
-        parser.error("give at least one BPM value or --play")
+    if not args.bpm and args.epic is None and args.play is None:
+        parser.error("give at least one BPM value, --epic or --play")
 
     client = OscClient(host=args.host, port=args.port)
     all_ok = True
@@ -96,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
         ok = client.send_bpm(value)
         all_ok = all_ok and ok
         print(f"sent /pp/bpm {value} to {client.target}")
+
+    if args.epic is not None:
+        ok = client.send_epic(args.epic)
+        all_ok = all_ok and ok
+        print(f"sent /pp/epic {args.epic} to {client.target}")
 
     if args.play is not None:
         ok = client.send_play(args.play)
