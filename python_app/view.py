@@ -64,6 +64,12 @@ class BpmWindow:
             button.pack(side="left", padx=4)
             self.nudge_buttons[delta] = button
 
+        # WR-01: reentrancy guard for commit_entry -- focus_set() below
+        # triggers a synchronous <FocusOut> on the Entry, which would
+        # otherwise re-enter commit_entry(force=False) from inside the
+        # force=True call.
+        self._committing = False
+
         self.entry_var = tk.StringVar(value=str(controller.value))
         self.entry = tk.Entry(
             self.nudge_row,
@@ -128,12 +134,23 @@ class BpmWindow:
         and <FocusOut> (force=False, commits only a changed value).
         After an Enter commit, focus moves to the root window so the
         arrow-key shortcuts immediately act on BPM again.
+
+        Guarded against reentrancy (WR-01): moving focus below triggers a
+        synchronous <FocusOut> on the Entry, which is also bound to this
+        method with force=False -- without the guard, a single Enter
+        keypress would invoke controller.apply_entry() twice.
         """
-        self.controller.apply_entry(self.entry_var.get(), force=force)
-        if force:
-            self.root.focus_set()
-            return "break"
-        return None
+        if self._committing:
+            return None
+        self._committing = True
+        try:
+            self.controller.apply_entry(self.entry_var.get(), force=force)
+            if force:
+                self.root.focus_set()
+                return "break"
+            return None
+        finally:
+            self._committing = False
 
     def handle_nudge_key(self, delta: int) -> str:
         """Arrow-key shortcut handler (D-11): nudge by delta, suppress default."""
