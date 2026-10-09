@@ -9,6 +9,7 @@ OSC_PORT = 57120  # sclang language port (NOT scsynth 57110)
 OSC_BPM_ADDRESS = "/pp/bpm"
 OSC_PLAY_ADDRESS = "/pp/play"
 OSC_EPIC_ADDRESS = "/pp/epic"
+OSC_VOLUME_ADDRESS = "/pp/volume"
 BPM_MIN = 60
 BPM_MAX = 180
 BPM_DEFAULT = 120

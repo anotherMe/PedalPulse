@@ -9,9 +9,10 @@ GUI entirely.
 
 The client also sends /pp/play <int> (1 = start, 0 = stop) for the
 transport, validated and applied by supercollider/main.scd's
-OSCdef(\\pp_play), and /pp/epic <float> (0-100, unclamped) for the EPIC
+OSCdef(\\pp_play), /pp/epic <float> (0-100, unclamped) for the EPIC
 energy level (EPIC-01/EPIC-02), validated and applied by
-OSCdef(\\pp_epic).
+OSCdef(\\pp_epic), and /pp/volume <float> (0-100, unclamped) for the
+master volume (GUI-03), validated and applied by OSCdef(\\pp_volume).
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from pythonosc.udp_client import SimpleUDPClient
 
 
 class OscClient:
-    """Thin wrapper around pythonosc's SimpleUDPClient for /pp/bpm, /pp/play and /pp/epic sends."""
+    """Thin wrapper around pythonosc's SimpleUDPClient for /pp/bpm, /pp/play, /pp/epic and /pp/volume sends."""
 
     def __init__(self, host: str = config.OSC_HOST, port: int = config.OSC_PORT) -> None:
         self.host = host
@@ -87,18 +88,33 @@ class OscClient:
             return False
         return True
 
+    def send_volume(self, volume: float) -> bool:
+        """Send config.OSC_VOLUME_ADDRESS with float(volume), unclamped.
+
+        Sent raw -- the engine clamps 0-100 independently of the GUI
+        (GUI-03 boundary). Catches (OSError, OverflowError, BuildError) for
+        the same reasons as send_bpm.
+        """
+        try:
+            self._client.send_message(config.OSC_VOLUME_ADDRESS, float(volume))
+        except (OSError, OverflowError, BuildError) as exc:
+            print(f"OscClient: failed to send /pp/volume {volume} to {self.target}: {exc}", file=sys.stderr)
+            return False
+        return True
+
 
 def main(argv: list[str] | None = None) -> int:
-    """Raw-send CLI: python python_app/osc_client.py [BPM ...] [--epic F] [--play 0|1] [--host H] [--port P].
+    """Raw-send CLI: python python_app/osc_client.py [BPM ...] [--epic F] [--volume F] [--play 0|1] [--host H] [--port P].
 
     Sends BPM value(s) in order, raw and unclamped (floats including "nan"
     and "inf" are accepted on purpose -- this is the D-08 test script for
     verifying the engine clamps independently of the GUI), then /pp/epic if
-    --epic was given, then /pp/play if --play was given. At least one BPM
-    value, --epic or --play is required.
+    --epic was given, then /pp/volume if --volume was given, then /pp/play
+    if --play was given. At least one BPM value, --epic, --volume or --play
+    is required.
     """
     parser = argparse.ArgumentParser(
-        description="Send raw /pp/bpm, /pp/epic and/or /pp/play OSC messages to the PedalPulse engine."
+        description="Send raw /pp/bpm, /pp/epic, /pp/volume and/or /pp/play OSC messages to the PedalPulse engine."
     )
     parser.add_argument("bpm", nargs="*", type=float, help="BPM value(s) to send, in order")
     parser.add_argument(
@@ -107,6 +123,13 @@ def main(argv: list[str] | None = None) -> int:
         metavar="0-100",
         default=None,
         help="send /pp/epic with this float after any BPM values; sent raw, the engine clamps 0-100",
+    )
+    parser.add_argument(
+        "--volume",
+        type=float,
+        metavar="0-100",
+        default=None,
+        help="send /pp/volume with this float after --epic; sent raw, the engine clamps 0-100",
     )
     parser.add_argument(
         "--play",
@@ -119,8 +142,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=config.OSC_PORT, help="Target port (default: %(default)s)")
     args = parser.parse_args(argv)
 
-    if not args.bpm and args.epic is None and args.play is None:
-        parser.error("give at least one BPM value, --epic or --play")
+    if not args.bpm and args.epic is None and args.volume is None and args.play is None:
+        parser.error("give at least one BPM value, --epic, --volume or --play")
 
     client = OscClient(host=args.host, port=args.port)
     all_ok = True
@@ -133,6 +156,11 @@ def main(argv: list[str] | None = None) -> int:
         ok = client.send_epic(args.epic)
         all_ok = all_ok and ok
         print(f"sent /pp/epic {args.epic} to {client.target}")
+
+    if args.volume is not None:
+        ok = client.send_volume(args.volume)
+        all_ok = all_ok and ok
+        print(f"sent /pp/volume {args.volume} to {client.target}")
 
     if args.play is not None:
         ok = client.send_play(args.play)

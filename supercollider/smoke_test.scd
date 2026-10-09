@@ -20,6 +20,7 @@ var sendBpm, waitForTempo, traceGlide, lastTrace;
 var sendEpic, traceCtl, readCtl, waitEpicSettled, measureBand;
 var ctlSamples, bandSum = 0, bandCount = 0, ctlOSCdef, bandOSCdef;
 var stepBound;
+var measurePeak, sendVolume;
 
 // Watchdog first, in case anything below hangs. Raised from 240 to 300s:
 // Phase 3's EPIC checks wait out the 1.5s EPIC lag several times (glide
@@ -93,6 +94,24 @@ sendBpm = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/bpm', va
 // Python path through osc_client.py stays covered by "python epic" and the
 // clamp table.
 sendEpic = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/epic', value) };
+
+// Direct sclang send for /pp/volume (GUI-03 timing-sensitive checks). The
+// Python path through osc_client.py stays covered by "python volume" and
+// the clamp table.
+sendVolume = { |value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/volume', value) };
+
+// Measures the peak amplitude on an audio bus over durSec seconds via
+// \ppPeakProbe (test-only SynthDef added before main.scd loads). Hoisted
+// from B7's local definition (Plan 03) so the new volume checks can use it
+// too.
+measurePeak = { |busIndex, durSec|
+	var probe;
+	peakVal = 0.0;
+	probe = Synth.after(~ppMasterGroup, \ppPeakProbe, [\in, busIndex]);
+	durSec.wait;
+	probe.free;
+	peakVal;
+};
 
 // Traces a control-rate bus for durSec seconds via \ppCtlProbe, running
 // `action` (if notNil) after a short pre-roll so the very first samples
@@ -315,6 +334,22 @@ fork({
 	SynthDef(\ppBandProbe, { |in = 0, hpf = 4000|
 		SendReply.kr(Impulse.kr(20), '/pp/test/band', Amplitude.kr(HPF.ar(In.ar(in, 2), hpf), 0.01, 0.1));
 	}).add;
+
+	// DC source SynthDef (test-only; not part of main.scd): a constant 0.5
+	// signal for the isolated "volume glides" check below -- an easily
+	// checked, unvarying input through a scratch \ppMaster instance.
+	SynthDef(\ppDcSource, { |out = 0|
+		Out.ar(out, DC.ar(0.5) ! 2);
+	}).add;
+
+	// Level probe SynthDef (test-only; not part of main.scd): reports an
+	// audio-rate bus's instantaneous (A2K-converted) level plus a running
+	// pulse count via the same /pp/test/ctl reply path \ppCtlProbe uses, so
+	// the isolated "volume glides" check can reuse ctlSamples collection.
+	SynthDef(\ppLevelProbe, { |in = 0|
+		var trig = Impulse.kr(100);
+		SendReply.kr(trig, '/pp/test/ctl', [A2K.kr(In.ar(in, 1)), PulseCount.kr(trig)]);
+	}).add;
 	s.sync;
 
 	{
@@ -464,6 +499,88 @@ fork({
 		sendEpic.(10);
 		if (waitEpicSettled.(0.1, 4).not) {
 			fail.("epic brightens output", "smoothed EPIC bus never settled back to the default 0.1 within 4s");
+		};
+	}.value;
+
+	// --- python volume / volume scales output / volume silent at 0: real
+	// Python -> /pp/volume -> a lagged, tapered gain inside \ppMaster,
+	// before the limiter (GUI-03 engine half). ---
+	{
+		var countBefore, elapsedVol, p100, p50, expected, ratio;
+
+		countBefore = ~ppVolumeCount;
+		if (sendCli.("--volume 100") != 0) {
+			fail.("python volume", "osc_client.py exited non-zero for --volume 100");
+		};
+		elapsedVol = 0;
+		while ({ (~ppVolumeCount == countBefore) and: { elapsedVol < 3 } }) {
+			0.1.wait;
+			elapsedVol = elapsedVol + 0.1;
+		};
+		if (~ppVolumeCount == countBefore) {
+			fail.("python volume", "~ppVolumeCount did not change within 3s for --volume 100");
+		};
+		if (~volume != 100) {
+			fail.("python volume", "expected ~volume == 100, got %".format(~volume));
+		};
+		0.5.wait;  // let the 0.2s master lag settle
+		p100 = measurePeak.(0, 4);
+
+		countBefore = ~ppVolumeCount;
+		if (sendCli.("--volume 50") != 0) {
+			fail.("python volume", "osc_client.py exited non-zero for --volume 50");
+		};
+		elapsedVol = 0;
+		while ({ (~ppVolumeCount == countBefore) and: { elapsedVol < 3 } }) {
+			0.1.wait;
+			elapsedVol = elapsedVol + 0.1;
+		};
+		if (~ppVolumeCount == countBefore) {
+			fail.("python volume", "~ppVolumeCount did not change within 3s for --volume 50");
+		};
+		if (~volume != 50) {
+			fail.("python volume", "expected ~volume == 50, got %".format(~volume));
+		};
+		0.5.wait;
+		p50 = measurePeak.(0, 4);
+		checkOk.("python volume");
+
+		expected = ~ppVolumeAmp.(50) / ~ppVolumeAmp.(100);
+		ratio = p50 / p100;
+		"PedalPulse smoke: output peak at volume 100 = %, at 50 = %, ratio % (expected %)".format(p100, p50, ratio, expected).postln;
+		if (p100 <= 0.01) {
+			fail.("volume scales output", "peak at volume 100 (%) is at or below the silence floor 0.01".format(p100));
+		};
+		if (p100 >= 0.85) {
+			fail.("volume scales output", "peak at volume 100 (%) is already at or near the limiter -- the ratio would mean nothing".format(p100));
+		};
+		if ((ratio - expected).abs > 0.1) {
+			fail.("volume scales output", "ratio % is not within 0.1 of the expected taper ratio %".format(ratio, expected));
+		};
+		checkOk.("volume scales output");
+
+		countBefore = ~ppVolumeCount;
+		sendVolume.(0);
+		elapsedVol = 0;
+		while ({ (~ppVolumeCount == countBefore) and: { elapsedVol < 3 } }) {
+			0.1.wait;
+			elapsedVol = elapsedVol + 0.1;
+		};
+		if (~ppVolumeCount == countBefore) {
+			fail.("volume silent at 0", "~ppVolumeCount did not change within 3s for volume 0");
+		};
+		0.5.wait;
+		if (measurePeak.(0, 2) >= 0.001) {
+			fail.("volume silent at 0", "peak % at volume 0 is not below the silence threshold 0.001".format(measurePeak.(0, 2)));
+		};
+		checkOk.("volume silent at 0");
+
+		countBefore = ~ppVolumeCount;
+		sendVolume.(80);
+		elapsedVol = 0;
+		while ({ (~ppVolumeCount == countBefore) and: { elapsedVol < 3 } }) {
+			0.1.wait;
+			elapsedVol = elapsedVol + 0.1;
 		};
 	}.value;
 
@@ -797,9 +914,12 @@ fork({
 			var transportCountBefore = ~ppTransportCount;
 			var epicCountBefore = ~ppEpicCount;
 			var epicBefore = ~epic;
+			var volumeCountBefore = ~ppVolumeCount;
+			var volumeBefore = ~volume;
 			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/bpm', 77);
 			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/play', 0);
 			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/epic', 55);
+			NetAddr(lanIP, NetAddr.langPort).sendMsg('/pp/volume', 5);
 			(~clock.beatDur * 2).wait;
 			if ((~ppTempoApplyCount != countBefore) or: { ~clock.tempo != tempoBefore }) {
 				fail.("loopback-only", "apply happened after send from non-loopback address %".format(lanIP));
@@ -809,6 +929,9 @@ fork({
 			};
 			if ((~ppEpicCount != epicCountBefore) or: { ~epic != epicBefore }) {
 				fail.("loopback-only", "/pp/epic changed EPIC after send from non-loopback address %".format(lanIP));
+			};
+			if ((~ppVolumeCount != volumeCountBefore) or: { ~volume != volumeBefore }) {
+				fail.("loopback-only", "/pp/volume changed volume after send from non-loopback address %".format(lanIP));
 			};
 			checkOk.("loopback-only");
 		};
@@ -1258,6 +1381,144 @@ fork({
 		};
 	}.value;
 
+	// --- volume clamp table (GUI-03 boundary, one step either side, sent
+	// through the real Python CLI like the EPIC clamp table above) ---
+	[
+		[150, 100, "volume clamp 150->100"],
+		[101, 100, "volume clamp 101->100"],
+		[100, 100, "volume clamp 100"],
+		[0, 0, "volume clamp 0"],
+		[-1, 0, "volume clamp -1->0"],
+		[62.5, 62.5, "volume float 62.5"],
+	].do({ |entry|
+		var sent = entry[0], expected = entry[1], name = entry[2];
+		var before = ~ppVolumeCount;
+		var rc, elapsedVc = 0;
+		rc = sendCli.("--volume " ++ sent.asString);
+		if (rc != 0) {
+			fail.(name, "osc_client.py exited %".format(rc));
+		};
+		while ({ (~ppVolumeCount == before) and: { elapsedVc < 3 } }) {
+			0.1.wait;
+			elapsedVc = elapsedVc + 0.1;
+		};
+		if (~ppVolumeCount == before) {
+			fail.(name, "~ppVolumeCount did not change within 3s for sent=%".format(sent));
+		};
+		if ((~volume - expected).abs >= 1e-6) {
+			fail.(name, "expected ~volume %, got %".format(expected, ~volume));
+		};
+		if ((readCtl.(~ppVolumeBus.index) - ~ppVolumeAmp.(expected)).abs >= 1e-4) {
+			fail.(name, "raw volume bus % does not hold the taper of the clamped value % (expected %)".format(readCtl.(~ppVolumeBus.index), expected, ~ppVolumeAmp.(expected)));
+		};
+		checkOk.(name);
+	});
+	{
+		var before = ~ppVolumeCount, elapsedVc = 0;
+		sendVolume.(80);
+		while ({ (~ppVolumeCount == before) and: { elapsedVc < 3 } }) {
+			0.1.wait;
+			elapsedVc = elapsedVc + 0.1;
+		};
+	}.value;
+
+	// --- volume malformed ignored (GUI-03 input contract) ---
+	{
+		var countBefore = ~ppVolumeCount;
+		var volumeBefore = ~volume;
+		var ctlBefore = readCtl.(~ppVolumeBus.index);
+		var elapsedVm;
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/volume');
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/volume', "loud");
+		NetAddr("127.0.0.1", NetAddr.langPort).sendMsg('/pp/volume', 0.0/0.0);
+		sendCli.("--volume nan");
+		0.5.wait;
+		if (~ppVolumeCount != countBefore) {
+			fail.("volume malformed ignored", "~ppVolumeCount changed after malformed /pp/volume input");
+		};
+		if (~volume != volumeBefore) {
+			fail.("volume malformed ignored", "~volume changed after malformed /pp/volume input");
+		};
+		if ((readCtl.(~ppVolumeBus.index) - ctlBefore).abs > 1e-4) {
+			fail.("volume malformed ignored", "raw volume bus moved after malformed /pp/volume input");
+		};
+		sendVolume.(70);
+		elapsedVm = 0;
+		while ({ (~ppVolumeCount == countBefore) and: { elapsedVm < 2 } }) {
+			0.1.wait;
+			elapsedVm = elapsedVm + 0.1;
+		};
+		if (~ppVolumeCount != (countBefore + 1)) {
+			fail.("volume malformed ignored", "expected exactly 1 apply for the valid 70 after malformed input, got %".format(~ppVolumeCount - countBefore));
+		};
+		if (~volume != 70) {
+			fail.("volume malformed ignored", "expected ~volume == 70, got %".format(~volume));
+		};
+		checkOk.("volume malformed ignored");
+		sendVolume.(80);
+	}.value;
+
+	// --- volume glides (GUI-03): an isolated \ppMaster instance on scratch
+	// buses proves the 0.2s lag de-zippers a volume step instead of
+	// stepping instantly, without touching the real audio chain. ---
+	{
+		var scratchIn, scratchOut, scratchVol, scratchGroup;
+		var dc, masterProbe, levelProbe;
+		var samples, preCount, i, monotoneOk = true, between = 0;
+
+		scratchIn = Bus.audio(s, 2);
+		scratchOut = Bus.audio(s, 2);
+		scratchVol = Bus.control(s, 1);
+		scratchVol.set(1.0);
+		scratchGroup = Group.new(s, \addToTail);
+		ctlSamples = List.new;
+
+		dc = Synth.head(scratchGroup, \ppDcSource, [\out, scratchIn.index]);
+		masterProbe = Synth.after(dc, \ppMaster, [\in, scratchIn.index, \out, scratchOut.index, \preGain, 1, \volumeBus, scratchVol.index]);
+		levelProbe = Synth.tail(scratchGroup, \ppLevelProbe, [\in, scratchOut.index]);
+
+		0.3.wait;
+		preCount = ctlSamples.size;
+		scratchVol.set(0);
+		0.6.wait;
+
+		scratchGroup.free;
+		scratchIn.free;
+		scratchOut.free;
+		scratchVol.free;
+		samples = ctlSamples;
+		ctlSamples = nil;
+
+		if (preCount < 5) {
+			fail.("volume glides", "only % samples collected before the step, expected >= 5".format(preCount));
+		};
+		i = max(0, preCount - 5);
+		while ({ i < preCount }) {
+			if ((samples[i][0] - 0.5).abs > 0.01) {
+				fail.("volume glides", "pre-step sample % (index %) is not within 0.01 of 0.5".format(samples[i][0], i));
+			};
+			i = i + 1;
+		};
+		i = preCount;
+		while ({ i < (samples.size - 1) }) {
+			if ((samples[i + 1][0] - samples[i][0]) > 1e-4) {
+				monotoneOk = false;
+			};
+			if ((samples[i][0] > 0.05) and: { samples[i][0] < 0.45 }) { between = between + 1; };
+			i = i + 1;
+		};
+		if (monotoneOk.not) {
+			fail.("volume glides", "post-step samples are not monotone non-increasing");
+		};
+		if (between < 3) {
+			fail.("volume glides", "only % post-step samples strictly between 0.05 and 0.45, expected >= 3".format(between));
+		};
+		if (samples.last[0] >= 0.005) {
+			fail.("volume glides", "final sample % is not below 0.005".format(samples.last[0]));
+		};
+		checkOk.("volume glides");
+	}.value;
+
 	// --- B6: node-leak bound ---
 	{
 		var maxSynths = 0, elapsed6 = 0;
@@ -1282,18 +1543,7 @@ fork({
 
 	// --- B7: mix headroom + limiter, no bypass + ceiling (ENG-02, D-16, D-17) ---
 	{
-		var measurePeak, peakMix, peak0, peak1, peak8, mixProbe;
-		// Generalised to take the bus index to probe (keep the \ppPeakProbe
-		// SynthDef); placement stays after ~ppMasterGroup for these
-		// post-limiter checks, which always probe bus 0.
-		measurePeak = { |busIndex, durSec|
-			var probe;
-			peakVal = 0.0;
-			probe = Synth.after(~ppMasterGroup, \ppPeakProbe, [\in, busIndex]);
-			durSec.wait;
-			probe.free;
-			peakVal;
-		};
+		var peakMix, peak0, peak1, peak8, mixProbe;
 
 		// --- fx headroom: at the default EPIC (10, Recovery), the post-FX
 		// peak stays under the limiter ceiling, so the limiter stays a
@@ -1343,8 +1593,18 @@ fork({
 		"PedalPulse smoke: peak at preGain 1 = %".format(peak1).postln;
 
 		// Run the limiter-ceiling check at the hottest FX state (EPIC 100)
-		// so the existing preGain-8 post line reports the EPIC 100 level.
+		// and at max volume (GUI-03) so the existing preGain-8 post line
+		// reports the EPIC 100 + volume 100 level.
 		sendEpic.(100);
+		{
+			var volCountBefore = ~ppVolumeCount, elapsedV2 = 0;
+			sendVolume.(100);
+			while ({ (~ppVolumeCount == volCountBefore) and: { elapsedV2 < 3 } }) {
+				0.1.wait;
+				elapsedV2 = elapsedV2 + 0.1;
+			};
+			0.5.wait;
+		}.value;
 		if (waitEpicSettled.(1.0, 4).not) {
 			fail.("limiter ceiling", "smoothed EPIC bus never settled to 1.0 within 4s");
 		};
@@ -1357,17 +1617,67 @@ fork({
 		checkOk.("limiter ceiling");
 
 		~ppMasterSynth.set(\preGain, ~preGain);
+
+		// --- max epic max volume no clip (ROADMAP success criterion 4):
+		// VO2's EPIC value and the slider maximum, sent together through
+		// the real Python path, must never exceed the limiter ceiling. ---
+		{
+			var epicCountBefore2 = ~ppEpicCount, volCountBefore2 = ~ppVolumeCount;
+			var elapsedMx = 0;
+			var preLimiterProbe, outPeak;
+			if (sendCli.("--epic 100 --volume 100") != 0) {
+				fail.("max epic max volume no clip", "osc_client.py exited non-zero for --epic 100 --volume 100");
+			};
+			while ({ ((~ppEpicCount == epicCountBefore2) or: { ~ppVolumeCount == volCountBefore2 }) and: { elapsedMx < 3 } }) {
+				0.1.wait;
+				elapsedMx = elapsedMx + 0.1;
+			};
+			if (~ppEpicCount == epicCountBefore2) {
+				fail.("max epic max volume no clip", "~ppEpicCount did not change within 3s");
+			};
+			if (~ppVolumeCount == volCountBefore2) {
+				fail.("max epic max volume no clip", "~ppVolumeCount did not change within 3s");
+			};
+			if (~epic != 100) {
+				fail.("max epic max volume no clip", "expected ~epic == 100, got %".format(~epic));
+			};
+			if (~volume != 100) {
+				fail.("max epic max volume no clip", "expected ~volume == 100, got %".format(~volume));
+			};
+			if (waitEpicSettled.(1.0, 4).not) {
+				fail.("max epic max volume no clip", "smoothed EPIC bus never settled to 1.0 within 4s");
+			};
+			0.5.wait;  // let the master's 0.2s volume lag settle too
+
+			peakVal = 0.0;
+			preLimiterProbe = Synth.after(~ppFxGroup, \ppPeakProbe, [\in, ~ppFxBus.index]);
+			4.wait;
+			preLimiterProbe.free;
+
+			outPeak = measurePeak.(0, 8);
+			"PedalPulse smoke: VO2 + volume 100: pre-limiter peak = %, output peak = %".format(peakVal, outPeak).postln;
+			// no-clip threshold is the ceiling (0.891251) plus tolerance:
+			if ((outPeak <= 0.892).not) {
+				fail.("max epic max volume no clip", "output peak % exceeds the limiter ceiling plus tolerance 0.892".format(outPeak));
+			};
+			if (outPeak <= 0.1) {
+				fail.("max epic max volume no clip", "output peak % is at or below the silence floor 0.1 -- no real audio flowing".format(outPeak));
+			};
+			checkOk.("max epic max volume no clip");
+		}.value;
+
 		sendEpic.(10);
 		if (waitEpicSettled.(0.1, 4).not) {
 			fail.("limiter ceiling", "smoothed EPIC bus never settled back to the default 0.1 within 4s");
 		};
+		sendVolume.(80);
 	}.value;
 
 	// --- B8: re-evaluation idempotence (ENG-04 concurrency) ---
 	{
 		var oldClock = ~clock;
 		var oldMaster = ~ppMasterSynth;
-		var oldFx, oldSmoother, oldFxGroup, oldBuses;
+		var oldFx, oldSmoother, oldFxGroup, oldBuses, oldVolBus;
 		var bpmBeforeReload = ~bpm;
 		var elapsed8, countBefore;
 
@@ -1381,10 +1691,19 @@ fork({
 		if (waitEpicSettled.(0.75, 4).not) {
 			fail.("fx re-evaluation", "smoothed EPIC bus never settled to 0.75 within 4s");
 		};
+		{
+			var volCountBefore3 = ~ppVolumeCount, elapsedV3 = 0;
+			sendVolume.(35);
+			while ({ (~ppVolumeCount == volCountBefore3) and: { elapsedV3 < 3 } }) {
+				0.1.wait;
+				elapsedV3 = elapsedV3 + 0.1;
+			};
+		}.value;
 		oldFx = ~ppFxSynth;
 		oldSmoother = ~ppEpicSmoother;
 		oldFxGroup = ~ppFxGroup;
 		oldBuses = [~ppFxBus, ~ppEpicBus, ~ppEpicSmoothBus];
+		oldVolBus = ~ppVolumeBus;
 		NodeWatcher.register(oldFx, true);
 		NodeWatcher.register(oldSmoother, true);
 
@@ -1482,6 +1801,23 @@ fork({
 			fail.("fx re-evaluation", "smoothed EPIC bus % is not within 0.01 of 0.75 immediately after reload (no glide from 0, no jump to the default)".format(readCtl.(~ppEpicSmoothBus.index)));
 		};
 		checkOk.("fx re-evaluation");
+
+		// --- volume re-evaluation (GUI-03, same leak discipline as EPIC):
+		// the old volume bus is freed, the last volume survives reload, and
+		// the new bus holds its taper immediately. ---
+		if (oldVolBus.index.notNil) {
+			fail.("volume re-evaluation", "old volume bus still has a non-nil index % after reload (Bus.free sets it to nil)".format(oldVolBus.index));
+		};
+		if (~volume != 35) {
+			fail.("volume re-evaluation", "~volume % != 35 after reload (last value should be preserved)".format(~volume));
+		};
+		if (~ppVolumeBus.index.isNil) {
+			fail.("volume re-evaluation", "new volume bus has a nil index after reload");
+		};
+		if ((readCtl.(~ppVolumeBus.index) - ~ppVolumeAmp.(35)).abs >= 1e-4) {
+			fail.("volume re-evaluation", "new volume bus % is not within 1e-4 of the taper of 35 (%)".format(readCtl.(~ppVolumeBus.index), ~ppVolumeAmp.(35)));
+		};
+		checkOk.("volume re-evaluation");
 	}.value;
 
 	"SMOKE PASS".postln;

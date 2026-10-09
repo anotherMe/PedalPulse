@@ -302,3 +302,89 @@ def test_cli_main_sends_bpm_epic_play_in_order():
         assert list(message3.params) == [1]
     finally:
         sock.close()
+
+
+def test_send_volume_delivers_decodable_osc_message_over_real_socket():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_volume(65) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/volume"
+        assert list(message.params) == [65.0]
+        assert type(message.params[0]) is float
+    finally:
+        sock.close()
+
+
+def test_send_volume_delivers_unclamped_value():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_volume(150) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert list(message.params) == [150.0]
+    finally:
+        sock.close()
+
+
+def test_send_volume_returns_false_on_oserror(capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+    with patch.object(client._client, "send_message", side_effect=OSError("boom")):
+        assert client.send_volume(50) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "OscClient: failed to send /pp/volume" in err
+    assert "boom" in err
+
+
+def test_send_volume_returns_false_on_overflow_error(capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+
+    assert client.send_volume(1e300) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "OscClient: failed to send /pp/volume" in err
+
+
+def test_cli_main_sends_volume(capsys):
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        rc = osc_client.main(["--volume", "40", "--port", str(port)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert f"sent /pp/volume 40.0 to 127.0.0.1:{port}" in out
+
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/volume"
+        assert list(message.params) == [40.0]
+    finally:
+        sock.close()
+
+
+def test_cli_main_sends_epic_then_volume_in_order():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        rc = osc_client.main(["--epic", "100", "--volume", "100", "--port", str(port)])
+        assert rc == 0
+
+        datagram1, _addr = sock.recvfrom(4096)
+        message1 = OscMessage(datagram1)
+        assert message1.address == "/pp/epic"
+        assert list(message1.params) == [100.0]
+
+        datagram2, _addr = sock.recvfrom(4096)
+        message2 = OscMessage(datagram2)
+        assert message2.address == "/pp/volume"
+        assert list(message2.params) == [100.0]
+    finally:
+        sock.close()

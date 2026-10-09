@@ -21,6 +21,12 @@
 // EPIC smoother. Edit and re-evaluate the whole file to retune.
 ~ppEpicLagSecs = 1.5;
 
+// GUI-03: maps the app's 0-100 volume to master gain with a squared taper
+// (100 = unity, never a boost; 80 = 0.64; 50 = 0.25), so equal slider moves
+// feel like roughly equal loudness steps; for a linear map, change only
+// this line.
+~ppVolumeAmp = { |v| (v / 100).squared };
+
 s.options.numInputBusChannels = 0;  // no mic input: avoids the macOS mic permission prompt, saves CPU
 s.options.numOutputBusChannels = 2;
 // s.latency left at its default (Pitfall 3).
@@ -54,6 +60,7 @@ s.waitForBoot({
 	if (~ppFxBus.notNil) { ~ppFxBus.free };
 	if (~ppEpicBus.notNil) { ~ppEpicBus.free };
 	if (~ppEpicSmoothBus.notNil) { ~ppEpicSmoothBus.free };
+	if (~ppVolumeBus.notNil) { ~ppVolumeBus.free };
 	~ppRampPendingBpm = nil; ~ppRampRateBpm = 0;  // a pending target on a stopped clock can never wedge later messages
 
 	SynthDef(\ppKick, { |out = 0, amp = 0.5|
@@ -102,8 +109,13 @@ s.waitForBoot({
 		Out.ar(out, sig * env * amp);
 	}).add;
 
-	SynthDef(\ppMaster, { |in, out = 0, preGain = 1|
-		var sig = In.ar(in, 2) * preGain;
+	SynthDef(\ppMaster, { |in, out = 0, preGain = 1, volumeBus = 0|
+		// GUI-03: volume is applied before the limiter, never after (Pitfall
+		// 1) -- it is a gain stage inside the master, exactly like preGain.
+		// The 0.2s lag de-zippers a slider release and is deliberately
+		// shorter than EPIC's musical glide (~ppEpicLagSecs).
+		var volume = Lag.kr(In.kr(volumeBus), 0.2);
+		var sig = In.ar(in, 2) * preGain * volume;
 		Out.ar(out, Limiter.ar(sig, 0.891251, 0.01));  // D-16: -1 dBFS = 10^(-1/20) ~= 0.891251
 	}).add;
 
@@ -137,6 +149,7 @@ s.waitForBoot({
 	~ppFxBus = Bus.audio(s, 2);
 	~ppEpicBus = Bus.control(s, 1);
 	~ppEpicSmoothBus = Bus.control(s, 1);
+	~ppVolumeBus = Bus.control(s, 1);
 
 	~ppInstrGroup = Group.new(s);
 	~ppFxGroup = Group.after(~ppInstrGroup);
@@ -157,9 +170,18 @@ s.waitForBoot({
 	// the same control block, reading last block's stale value.
 	~ppFxSynth = Synth(\ppFx, [\in, ~ppMixBus.index, \out, ~ppFxBus.index, \epicBus, ~ppEpicSmoothBus.index], ~ppFxGroup, \addToTail);
 
+	// GUI-03: ~volume = ~volume ? 80 keeps the last value across a
+	// re-evaluation (like ~bpm and ~epic), defaulting to 80 on a fresh
+	// boot. Set the raw bus BEFORE creating the master synth below: Lag
+	// starts from its first input, so the master's lag starts at the
+	// current gain with no fade from 0 on boot or re-evaluation.
+	~volume = ~volume ? 80;
+	~ppVolumeCount = 0;
+	~ppVolumeBus.set(~ppVolumeAmp.(~volume));
+
 	// \ppMaster now reads ~ppFxBus (post-FX), not ~ppMixBus -- the FX chain
 	// sits between the instruments and the limiter, never bypassing it.
-	~ppMasterSynth = Synth(\ppMaster, [\in, ~ppFxBus.index, \out, 0, \preGain, ~preGain], ~ppMasterGroup);
+	~ppMasterSynth = Synth(\ppMaster, [\in, ~ppFxBus.index, \out, 0, \preGain, ~preGain, \volumeBus, ~ppVolumeBus.index], ~ppMasterGroup);
 
 	// --- Clock and loop ---
 	~bpm = ~bpm ? 120;  // D-07: fresh session starts at 120; re-evaluation keeps the last applied tempo
@@ -374,11 +396,27 @@ s.waitForBoot({
 		};
 	}, '/pp/epic', srcID: NetAddr("127.0.0.1", nil));
 
+	// --- OSC control: /pp/volume <float 0-100> (GUI-03) ---
+	// Loopback-only, same srcID guard as /pp/bpm, /pp/play and /pp/epic.
+	// The handler never touches the clock -- volume is entirely orthogonal
+	// to the tempo-glide mechanism.
+	OSCdef(\pp_volume, { |msg|
+		var raw = msg[1];
+		if (raw.isNumber.not or: { raw.isNaN }) {
+			"PedalPulse WARNING: ignoring /pp/volume with invalid argument %".format(raw).postln;
+		} {
+			~volume = raw.asFloat.clip(0, 100);
+			~ppVolumeCount = ~ppVolumeCount + 1;
+			~ppVolumeBus.set(~ppVolumeAmp.(~volume));
+			"PedalPulse: /pp/volume % -> % (gain %)".format(raw, ~volume, ~ppVolumeAmp.(~volume).round(0.001)).postln;
+		};
+	}, '/pp/volume', srcID: NetAddr("127.0.0.1", nil));
+
 	~ppOscPort = NetAddr.langPort;
 	"PedalPulse: listening for OSC on port %".format(~ppOscPort).postln;
 	if (~ppOscPort != 57120) {
 		"PedalPulse WARNING: OSC port is % but python_app/config.py sends to 57120 -- quit other sclang instances or pass --port %".format(~ppOscPort, ~ppOscPort).postln;
 	};
-	"PedalPulse: ready -- groove playing at % BPM, EPIC % (/pp/bpm, /pp/play, /pp/epic)".format(~bpm, ~epic).postln;
+	"PedalPulse: ready -- groove playing at % BPM, EPIC %, volume % (/pp/bpm, /pp/play, /pp/epic, /pp/volume)".format(~bpm, ~epic, ~volume).postln;
 	~ppReady = true;
 });
