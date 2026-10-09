@@ -16,8 +16,8 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 
 ### Tempo
 
-- [ ] **TEMPO-01**: When the user sets a new BPM, the music glides to it over ~1–2 bars, beat-synchronously, with no audible jolt
-- [ ] **TEMPO-02**: When the user changes BPM while a ramp is in progress, the engine retargets smoothly from the current tempo (no restart, no jump)
+- [x] **TEMPO-01**: When the user sets a new BPM, the music glides to it over ~1–2 bars, beat-synchronously, with no audible jolt
+- [x] **TEMPO-02**: When the user changes BPM while a ramp is in progress, the engine retargets smoothly from the current tempo (no restart, no jump)
 - [x] **TEMPO-03**: BPM values outside 60–180 are clamped to that range by the engine
 
 ### EPIC
@@ -86,8 +86,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ENG-02 | Phase 1 | Complete |
 | ENG-03 | Phase 4 | Pending |
 | ENG-04 | Phase 1 | Complete |
-| TEMPO-01 | Phase 2 | Pending |
-| TEMPO-02 | Phase 2 | Pending |
+| TEMPO-01 | Phase 2 | Complete |
+| TEMPO-02 | Phase 2 | Complete |
 | TEMPO-03 | Phase 1 | Complete |
 | EPIC-01 | Phase 3 | Pending |
 | EPIC-02 | Phase 3 | Pending |
