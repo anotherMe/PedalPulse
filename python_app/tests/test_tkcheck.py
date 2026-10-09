@@ -56,8 +56,11 @@ def test_importing_tkcheck_does_not_import_tkinter():
     # module source has no module-level tkinter import statement.
     source = Path(tkcheck.__file__).read_text()
     for line in source.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("import tkinter") or stripped.startswith("from tkinter"):
+        # Module-level only: a line that starts in column 0 (no leading
+        # whitespace) with import/from tkinter. An indented import inside
+        # check_tk_compatible() is the whole point (lazy import) and must
+        # NOT be flagged.
+        if line.startswith("import tkinter") or line.startswith("from tkinter"):
             pytest.fail(f"Found module-level tkinter import: {line!r}")
 
 
