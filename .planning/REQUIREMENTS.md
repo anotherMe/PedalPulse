@@ -28,14 +28,14 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 
 ### GUI
 
-- [ ] **GUI-01**: User can set BPM via a slider, a numeric entry field, and +/- nudge buttons, all kept in sync
+- [x] **GUI-01**: User can set BPM via a slider, a numeric entry field, and +/- nudge buttons, all kept in sync
 - [ ] **GUI-02**: User can start and stop the music from the GUI
 - [ ] **GUI-03**: User can adjust master volume from the GUI
 - [x] **GUI-04**: The Tkinter app launches on macOS with a working Tcl/Tk 8.6; on an incompatible Tk it shows a clear warning instead of failing silently
 
 ### Link
 
-- [ ] **LINK-01**: Every GUI control change reaches the engine over OSC in real time; rapid slider drags are throttled/coalesced so they don't flood the engine
+- [x] **LINK-01**: Every GUI control change reaches the engine over OSC in real time; rapid slider drags are throttled/coalesced so they don't flood the engine
 - [ ] **LINK-02**: GUI shows a connected/disconnected indicator driven by a heartbeat sent from the engine
 - [ ] **LINK-03**: GUI displays the engine's actual current BPM (including mid-ramp) and current EPIC level as reported by the engine
 
@@ -92,11 +92,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EPIC-01 | Phase 3 | Pending |
 | EPIC-02 | Phase 3 | Pending |
 | EPIC-03 | Phase 3 | Pending |
-| GUI-01 | Phase 1 | Pending |
+| GUI-01 | Phase 1 | Complete |
 | GUI-02 | Phase 2 | Pending |
 | GUI-03 | Phase 3 | Pending |
 | GUI-04 | Phase 1 | Complete |
-| LINK-01 | Phase 1 | Pending |
+| LINK-01 | Phase 1 | Complete |
 | LINK-02 | Phase 4 | Pending |
 | LINK-03 | Phase 4 | Pending |
 
