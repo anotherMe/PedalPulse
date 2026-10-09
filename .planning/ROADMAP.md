@@ -58,11 +58,11 @@ Plans:
   3. When the user changes BPM again mid-glide, the music retargets from its current tempo without restarting or jumping
   4. User presses Stop in the app and the music stops cleanly (no hanging notes); pressing Start brings the full groove back in time
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 02-01-PLAN.md — Start/Stop transport tracer: OscClient.send_play + --play CLI → /pp/play → validated, idempotent, loopback-only OSCdef → ~ppStart/~ppStop with group-wide gate release (Assumption A3 proven first) (wave 1)
+- [x] 02-01-PLAN.md — Start/Stop transport tracer: OscClient.send_play + --play CLI → /pp/play → validated, idempotent, loopback-only OSCdef → ~ppStart/~ppStop with group-wide gate release (Assumption A3 proven first) (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-02-PLAN.md — Start/Stop button in the app: PlayController (test-first) + toggle button wired to send_play, Tk 9 widget tests (wave 2)
@@ -111,6 +111,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Tempo Link Skeleton | 3/3 | Complete    | 2026-10-09 |
-| 2. Full Groove & Smooth Tempo | 0/4 | Not started | - |
+| 2. Full Groove & Smooth Tempo | 1/4 | In Progress | - |
 | 3. EPIC Zones & Volume | 0/TBD | Not started | - |
 | 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |
