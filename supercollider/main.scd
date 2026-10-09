@@ -20,9 +20,10 @@ s.waitForBoot({
 	// --- Idempotent re-evaluation (D-17 workflow: edit ~preGain, re-evaluate) ---
 	// Replace, never stack: stop the previous patterns/clock and free the
 	// previous nodes/bus before building anything new.
-	Pbindef(\ppKick).stop;
-	Pbindef(\ppHat).stop;
-	Pbindef(\ppBass).stop;
+	// ~ppLayers is the single source of truth for "every layer" -- Plan 04
+	// appends the new layers here and every stop/start loop below follows.
+	~ppLayers = [\ppKick, \ppHat, \ppBass];
+	~ppLayers.do { |name| Pbindef(name).stop };
 	if (~clock.notNil) { ~clock.stop };
 	// Wait out s.latency: a note-on just before .stop may already be sent as
 	// a timestamped OSC bundle for the near future. Free too soon and that
@@ -81,7 +82,6 @@ s.waitForBoot({
 		\out, ~ppMixBus,
 		\group, ~ppInstrGroup,
 	);
-	Pbindef(\ppKick).play(~clock, quant: 4);  // D-15: autostarted, four on the floor
 
 	Pbindef(\ppHat,
 		\instrument, \ppHat,
@@ -90,7 +90,6 @@ s.waitForBoot({
 		\out, ~ppMixBus,
 		\group, ~ppInstrGroup,
 	);
-	Pbindef(\ppHat).play(~clock, quant: 4);
 
 	Pbindef(\ppBass,
 		\instrument, \ppBass,
@@ -103,7 +102,28 @@ s.waitForBoot({
 		\out, ~ppMixBus,
 		\group, ~ppInstrGroup,
 	);
-	Pbindef(\ppBass).play(~clock, quant: 4);
+
+	// --- Transport: ~ppStart / ~ppStop (GUI-02) ---
+	// Both the OSC handler and D-15 autostart below go through this same
+	// pair, so there is exactly one code path that starts or stops the
+	// groove.
+	~ppStart = {
+		~ppLayers.do { |name| Pbindef(name).play(~clock, quant: 4, doReset: true) };
+		~ppPlaying = true;
+		~ppTransportCount = ~ppTransportCount + 1;
+		"PedalPulse: started -- groove re-enters on the next bar".postln;
+	};
+
+	~ppStop = {
+		~ppLayers.do { |name| Pbindef(name).stop };
+		~ppPlaying = false;
+		~ppTransportCount = ~ppTransportCount + 1;
+		"PedalPulse: stopped".postln;
+	};
+
+	~ppPlaying = false;
+	~ppTransportCount = 0;
+	~ppStart.value;  // D-15: autostart through the same path /pp/play uses
 
 	// --- OSC control: /pp/bpm <float> ---
 	// Loopback-only (T-01-02): a nil port matches any port from 127.0.0.1,
@@ -130,11 +150,30 @@ s.waitForBoot({
 		};
 	}, '/pp/bpm', srcID: NetAddr("127.0.0.1", nil));
 
+	// --- OSC control: /pp/play <int> (GUI-02 transport) ---
+	// Loopback-only, same srcID guard as /pp/bpm. Non-zero = start, 0 =
+	// stop; invalid input is ignored with a warning; repeats are no-ops
+	// (idempotent), proven by ~ppTransportCount in the smoke test.
+	OSCdef(\pp_play, { |msg|
+		var raw = msg[1];
+		if (raw.isNumber.not or: { raw.isNaN }) {
+			"PedalPulse WARNING: ignoring /pp/play with invalid argument %".format(raw).postln;
+		} {
+			var want = raw.asInteger != 0;
+			if (want == ~ppPlaying) {
+				"PedalPulse: /pp/play % -> already %".format(raw, if (want) { "playing" } { "stopped" }).postln;
+			} {
+				"PedalPulse: /pp/play % -> %".format(raw, if (want) { "start" } { "stop" }).postln;
+				if (want) { ~ppStart.value } { ~ppStop.value };
+			};
+		};
+	}, '/pp/play', srcID: NetAddr("127.0.0.1", nil));
+
 	~ppOscPort = NetAddr.langPort;
 	"PedalPulse: listening for OSC on port %".format(~ppOscPort).postln;
 	if (~ppOscPort != 57120) {
 		"PedalPulse WARNING: OSC port is % but python_app/config.py sends to 57120 -- quit other sclang instances or pass --port %".format(~ppOscPort, ~ppOscPort).postln;
 	};
-	"PedalPulse: ready -- loop playing at % BPM".format(~bpm).postln;
+	"PedalPulse: ready -- groove playing at % BPM (/pp/bpm, /pp/play)".format(~bpm).postln;
 	~ppReady = true;
 });

@@ -13,7 +13,7 @@
 
 (
 var root, venvPython;
-var fail, checkOk, checkSkip, sendCli, waitForApplyChange;
+var fail, checkOk, checkSkip, sendCli, waitForApplyChange, waitForPlaying;
 var peakVal = 0.0, peakOSCdef;
 
 // Watchdog first, in case anything below hangs.
@@ -59,6 +59,17 @@ waitForApplyChange = { |before, timeoutSec|
 		elapsed = elapsed + 0.1;
 	};
 	~ppTempoApplyCount != before;
+};
+
+// Polls ~ppPlaying until it equals `want`, up to `timeoutSec`.
+// Returns true once it matches, false on timeout.
+waitForPlaying = { |want, timeoutSec|
+	var elapsed = 0;
+	while ({ (~ppPlaying != want) and: { elapsed < timeoutSec } }) {
+		0.1.wait;
+		elapsed = elapsed + 0.1;
+	};
+	~ppPlaying == want;
 };
 
 // Peak-probe OSCdef: SendReply.kr(... '/pp/test/peak', [peakL, peakR]) ->
@@ -141,6 +152,37 @@ fork({
 		fail.("python tempo 140", "got % BPM".format(~clock.tempo * 60));
 	};
 	checkOk.("python tempo 140");
+
+	// --- python stop / python start: real Python -> /pp/play transport (GUI-02) ---
+	{
+		sendResult = sendCli.("--play 0");
+		if (sendResult != 0) {
+			fail.("python stop", "osc_client.py exited %".format(sendResult));
+		};
+		if (waitForPlaying.(false, 3).not) {
+			fail.("python stop", "~ppPlaying did not become false within 3s");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying) {
+				fail.("python stop", "Pbindef(%) still playing after /pp/play 0".format(name));
+			};
+		};
+		checkOk.("python stop");
+
+		sendResult = sendCli.("--play 1");
+		if (sendResult != 0) {
+			fail.("python start", "osc_client.py exited %".format(sendResult));
+		};
+		if (waitForPlaying.(true, 3).not) {
+			fail.("python start", "~ppPlaying did not become true within 3s");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("python start", "Pbindef(%) not playing after /pp/play 1".format(name));
+			};
+		};
+		checkOk.("python start");
+	}.value;
 
 	// --- B1/B2: clamp table + whole-beat quantization (TEMPO-03, D-14) ---
 	[

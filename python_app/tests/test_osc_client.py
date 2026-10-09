@@ -110,3 +110,73 @@ def test_cli_main_delivers_nan():
         assert math.isnan(message.params[0])
     finally:
         sock.close()
+
+
+def test_send_play_delivers_int_osc_message_over_real_socket():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_play(1) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/play"
+        assert list(message.params) == [1]
+        assert isinstance(message.params[0], int)
+
+        assert client.send_play(0) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/play"
+        assert list(message.params) == [0]
+        assert isinstance(message.params[0], int)
+    finally:
+        sock.close()
+
+
+def test_send_play_coerces_bool_to_int():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_play(True) is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert list(message.params) == [1]
+        assert isinstance(message.params[0], int)
+    finally:
+        sock.close()
+
+
+def test_send_play_returns_false_on_oserror(capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+    with patch.object(client._client, "send_message", side_effect=OSError("boom")):
+        assert client.send_play(0) is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "boom" in err
+
+
+def test_cli_main_sends_play(capsys):
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        rc = osc_client.main(["--play", "0", "--port", str(port)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert f"sent /pp/play 0 to 127.0.0.1:{port}" in out
+
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/play"
+        assert list(message.params) == [0]
+    finally:
+        sock.close()
+
+
+def test_cli_main_requires_bpm_or_play():
+    with pytest.raises(SystemExit) as exc_info:
+        osc_client.main(["--port", "57199"])
+    assert exc_info.value.code == 2
