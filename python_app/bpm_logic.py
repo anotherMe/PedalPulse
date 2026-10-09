@@ -1,4 +1,5 @@
-"""Pure BPM state + send policy for the PedalPulse control app (GUI-01, LINK-01).
+"""Pure BPM and transport (play/stop) state + send policy for the PedalPulse
+control app (GUI-01, GUI-02, LINK-01).
 
 No tkinter import -- this module stays unit-testable without a display and
 is driven by injected schedule/cancel callables (Tk's root.after /
@@ -164,3 +165,55 @@ class BpmController:
     def send_initial(self) -> None:
         """Send the current value once, unconditionally (D-23)."""
         self._send_now()
+
+
+class PlayController:
+    """Tracks play/stop intent and decides when to send /pp/play (GUI-02).
+
+    Mirrors BpmController._set/_notify's shape: track value, notify
+    listeners on an actual change, let the caller (toggle/set_playing)
+    decide send timing. Unlike BpmController there is no debounce --
+    every discrete click is one send.
+    """
+
+    def __init__(
+        self,
+        send: Callable[[int], object],
+        initial: bool = True,
+    ) -> None:
+        self._send = send
+        self._playing = bool(initial)
+        self._listeners: list[Callable[[bool], None]] = []
+
+    @property
+    def playing(self) -> bool:
+        return self._playing
+
+    def add_listener(self, fn: Callable[[bool], None]) -> None:
+        self._listeners.append(fn)
+
+    def _notify(self) -> None:
+        for listener in self._listeners:
+            listener(self._playing)
+
+    def set_playing(self, playing: bool) -> None:
+        """Update playing state; notify and send only on an actual change.
+
+        Listeners are called (if the state changed) before send -- send is
+        fire-and-forget (its return value is ignored, same as BpmController):
+        a falsy return never rolls the state back.
+        """
+        new_state = bool(playing)
+        if new_state == self._playing:
+            return
+        self._playing = new_state
+        self._notify()
+        self._send(1 if new_state else 0)
+
+    def toggle(self) -> None:
+        """Flip the current state. One discrete send per call, no debounce."""
+        self.set_playing(not self._playing)
+
+    def send_initial(self) -> None:
+        """Send the current state once, unconditionally, without notifying (D-23)."""
+        self._send(1 if self._playing else 0)
