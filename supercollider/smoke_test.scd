@@ -307,6 +307,172 @@ fork({
 		checkOk.("glide starts on beat");
 	}.value;
 
+	// --- glide reaches target (TEMPO-01, downward, asserts on the 150.5 ->
+	// 120 glide recorded by "glide starts on beat") ---
+	{
+		var trace = lastTrace;
+		var maxStep = 2 * ((150.5 - 120) / 32) + 1e-6;
+		var i = 1;
+		while ({ i < trace.size }) {
+			if ((trace[i][1] - trace[i - 1][1]) > 1e-9) {
+				fail.("glide reaches target", "tempo rose between samples % -> % (beat %)".format(trace[i - 1][1], trace[i][1], trace[i][0]));
+			};
+			if ((trace[i - 1][1] - trace[i][1]).abs > maxStep) {
+				fail.("glide reaches target", "sample-to-sample drop % exceeds % BPM (beat %)".format(trace[i - 1][1] - trace[i][1], maxStep, trace[i][0]));
+			};
+			i = i + 1;
+		};
+		if (((trace.last[1] - 120).abs >= 1e-6) or: { (~bpm - 120).abs >= 1e-6 }) {
+			fail.("glide reaches target", "final tempo % / ~bpm % did not land on 120".format(trace.last[1], ~bpm));
+		};
+		if (((~ppRampLandBeat - ~ppRampStartBeat) < 6) or: { (~ppRampLandBeat - ~ppRampStartBeat) > 9 }) {
+			fail.("glide reaches target", "glide took % beats, expected 6-9".format(~ppRampLandBeat - ~ppRampStartBeat));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("glide reaches target", "Pbindef(%) not playing".format(name));
+			};
+		};
+		checkOk.("glide reaches target");
+	}.value;
+
+	// --- glide upward (TEMPO-01, upward direction) ---
+	{
+		var startBefore, trace, maxStep, i;
+		startBefore = ~ppRampStartBeat;
+		sendBpm.(170);
+		trace = traceGlide.(170, 15);
+		maxStep = 2 * (50 / 32) + 1e-6;
+		if (~ppRampStartBeat == startBefore) {
+			fail.("glide upward", "~ppRampStartBeat did not change after sending 170");
+		};
+		if ((~ppRampStartBeat - ~ppRampStartBeat.round).abs >= 1e-6) {
+			fail.("glide upward", "~ppRampStartBeat % is not a whole beat".format(~ppRampStartBeat));
+		};
+		i = 1;
+		while ({ i < trace.size }) {
+			if ((trace[i - 1][1] - trace[i][1]) > 1e-9) {
+				fail.("glide upward", "tempo fell between samples % -> % (beat %)".format(trace[i - 1][1], trace[i][1], trace[i][0]));
+			};
+			if ((trace[i][1] - trace[i - 1][1]).abs > maxStep) {
+				fail.("glide upward", "sample-to-sample rise % exceeds % BPM (beat %)".format(trace[i][1] - trace[i - 1][1], maxStep, trace[i][0]));
+			};
+			i = i + 1;
+		};
+		if (((~clock.tempo * 60 - 170).abs >= 1e-6) or: { ~ppRampRateBpm != 0 }) {
+			fail.("glide upward", "did not land on 170 BPM (tempo=%, rate=%)".format(~clock.tempo * 60, ~ppRampRateBpm));
+		};
+		if (((~ppRampLandBeat - ~ppRampStartBeat) < 6) or: { (~ppRampLandBeat - ~ppRampStartBeat) > 9 }) {
+			fail.("glide upward", "glide took % beats, expected 6-9".format(~ppRampLandBeat - ~ppRampStartBeat));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("glide upward", "Pbindef(%) not playing".format(name));
+			};
+		};
+		checkOk.("glide upward");
+	}.value;
+
+	// --- same bpm no-op (TEMPO-01 edge: adjacency) ---
+	{
+		var countBefore, startBefore, tempoBefore;
+		countBefore = ~ppTempoApplyCount;
+		startBefore = ~ppRampStartBeat;
+		tempoBefore = ~clock.tempo;
+		sendBpm.(170);
+		if (waitForApplyChange.(countBefore, 3).not) {
+			fail.("same bpm no-op", "sending the current tempo did not engage");
+		};
+		(~clock.beatDur * 2).wait;
+		if ((~clock.tempo * 60 - 170).abs >= 1e-6) {
+			fail.("same bpm no-op", "tempo drifted from 170 to %".format(~clock.tempo * 60));
+		};
+		if (~ppRampRateBpm != 0) {
+			fail.("same bpm no-op", "a glide started for a same-value BPM send");
+		};
+		if (~ppRampStartBeat != startBefore) {
+			fail.("same bpm no-op", "~ppRampStartBeat changed for a same-value BPM send");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("same bpm no-op", "Pbindef(%) not playing".format(name));
+			};
+		};
+		checkOk.("same bpm no-op");
+	}.value;
+
+	// --- retarget mid-glide (TEMPO-02, direction reversal) ---
+	{
+		var samples, elapsed, retargetStart, countBefore, maxStep, minSampled, maxSampled, i;
+		var retargeted = false;
+		sendBpm.(100);
+		samples = List.new;
+		elapsed = 0;
+		// Phase 1: sample until the tempo has fallen to 150 or below (a new
+		// glide toward 100 is clearly under way), up to a 10s timeout.
+		while ({ retargeted.not and: { elapsed < 10 } }) {
+			samples.add([~clock.beats, ~clock.tempo * 60]);
+			if ((~clock.tempo * 60) <= 150) { retargeted = true };
+			0.02.wait;
+			elapsed = elapsed + 0.02;
+		};
+		if (retargeted.not) {
+			fail.("retarget mid-glide", "tempo never fell to 150 BPM within 10s of sending 100");
+		};
+		retargetStart = ~ppRampStartBeat;
+		countBefore = ~ppTempoApplyCount;
+		sendBpm.(160);
+		// Phase 2: keep sampling until the engine lands on 160, up to a 15s timeout.
+		elapsed = 0;
+		while ({
+			(((~clock.tempo * 60 - 160).abs >= 1e-6) or: { ~ppRampRateBpm != 0 }) and: { elapsed < 15 }
+		}) {
+			samples.add([~clock.beats, ~clock.tempo * 60]);
+			0.02.wait;
+			elapsed = elapsed + 0.02;
+		};
+		samples.add([~clock.beats, ~clock.tempo * 60]);
+		if (((~clock.tempo * 60 - 160).abs >= 1e-6) or: { ~ppRampRateBpm != 0 }) {
+			fail.("retarget mid-glide", "glide never landed on 160 BPM within 15s");
+		};
+
+		if (~ppTempoApplyCount != (countBefore + 1)) {
+			fail.("retarget mid-glide", "expected exactly 1 apply for the retarget, got %".format(~ppTempoApplyCount - countBefore));
+		};
+		if (~ppRampStartBeat != retargetStart) {
+			fail.("retarget mid-glide", "~ppRampStartBeat changed on retarget (expected %, got %)".format(retargetStart, ~ppRampStartBeat));
+		};
+		maxStep = 2 * (70 / 32) + 1e-6;
+		minSampled = 1000;
+		maxSampled = 0;
+		i = 1;
+		while ({ i < samples.size }) {
+			if ((samples[i][1] - samples[i - 1][1]).abs > maxStep) {
+				fail.("retarget mid-glide", "sample-to-sample jump % exceeds % BPM (beat %)".format((samples[i][1] - samples[i - 1][1]).abs, maxStep, samples[i][0]));
+			};
+			i = i + 1;
+		};
+		samples.do({ |sample| minSampled = min(minSampled, sample[1]); maxSampled = max(maxSampled, sample[1]); });
+		if (minSampled <= 101) {
+			fail.("retarget mid-glide", "sampled tempo reached % (abandoned target of 100 nearly reached)".format(minSampled));
+		};
+		if (maxSampled > (170 + 1e-6)) {
+			fail.("retarget mid-glide", "sampled tempo exceeded 170 (%)".format(maxSampled));
+		};
+		if ((~clock.tempo * 60 - 160).abs >= 1e-6) {
+			fail.("retarget mid-glide", "did not land exactly on 160 BPM (got %)".format(~clock.tempo * 60));
+		};
+		if (((~ppRampLandBeat - ~ppLastApplyBeat) < 6) or: { (~ppRampLandBeat - ~ppLastApplyBeat) > 9 }) {
+			fail.("retarget mid-glide", "retarget-to-land took % beats, expected 6-9".format(~ppRampLandBeat - ~ppLastApplyBeat));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("retarget mid-glide", "Pbindef(%) not playing".format(name));
+			};
+		};
+		checkOk.("retarget mid-glide");
+	}.value;
+
 	// --- B3: latest wins (TEMPO-03, D-14) ---
 	applyCountBefore = ~ppTempoApplyCount;
 	sendCli.("100 130");
