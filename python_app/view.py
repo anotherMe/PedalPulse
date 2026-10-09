@@ -64,13 +64,21 @@ class BpmWindow:
             button.pack(side="left", padx=4)
             self.nudge_buttons[delta] = button
 
-        self.value_label = tk.Label(
+        self.entry_var = tk.StringVar(value=str(controller.value))
+        self.entry = tk.Entry(
             self.nudge_row,
-            textvariable=self.bpm_var,
+            textvariable=self.entry_var,
+            width=5,
+            justify="center",
             font=("TkDefaultFont", 16, "bold"),
-            width=4,
         )
-        self.value_label.pack(side="left", padx=8)
+        self.entry.pack(side="left", padx=8)
+        # D-10: Enter/KP_Enter always commits (force=True); focus-out commits
+        # only a changed value (force=False), so Enter followed by a
+        # focus-out never double-sends.
+        self.entry.bind("<Return>", lambda _event: self.commit_entry(force=True))
+        self.entry.bind("<KP_Enter>", lambda _event: self.commit_entry(force=True))
+        self.entry.bind("<FocusOut>", lambda _event: self.commit_entry(force=False))
 
         for delta in (1, 5):
             button = tk.Button(
@@ -94,6 +102,15 @@ class BpmWindow:
         )
         self.on_top_check.pack(pady=(4, 0))
 
+        # D-11: Up/Down +-1, Shift+Up/Down +-5, while the window has focus.
+        # Bound on root (not the Scale, which keeps takefocus=0) so the
+        # shortcuts fire for every widget in the window. Held keys
+        # auto-repeat into nudge(); the controller's debounce coalesces them.
+        self.root.bind("<Up>", lambda _event: self.handle_nudge_key(1))
+        self.root.bind("<Down>", lambda _event: self.handle_nudge_key(-1))
+        self.root.bind("<Shift-Up>", lambda _event: self.handle_nudge_key(5))
+        self.root.bind("<Shift-Down>", lambda _event: self.handle_nudge_key(-5))
+
         controller.add_listener(self._on_bpm_changed)
 
     def _toggle_on_top(self) -> None:
@@ -101,3 +118,24 @@ class BpmWindow:
 
     def _on_bpm_changed(self, new_value: int) -> None:
         self.bpm_var.set(new_value)
+        self.entry_var.set(str(new_value))
+
+    def commit_entry(self, force: bool) -> str | None:
+        """Apply the entry's current text (D-10).
+
+        Bound to <Return>/<KP_Enter> (force=True, always commits and
+        returns "break" so the entry's default newline/bell is suppressed)
+        and <FocusOut> (force=False, commits only a changed value).
+        After an Enter commit, focus moves to the root window so the
+        arrow-key shortcuts immediately act on BPM again.
+        """
+        self.controller.apply_entry(self.entry_var.get(), force=force)
+        if force:
+            self.root.focus_set()
+            return "break"
+        return None
+
+    def handle_nudge_key(self, delta: int) -> str:
+        """Arrow-key shortcut handler (D-11): nudge by delta, suppress default."""
+        self.controller.nudge(delta)
+        return "break"
