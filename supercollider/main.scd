@@ -27,7 +27,10 @@ s.waitForBoot({
 	// previous nodes/bus before building anything new.
 	// ~ppLayers is the single source of truth for "every layer" -- Plan 04
 	// appends the new layers here and every stop/start loop below follows.
-	~ppLayers = [\ppKick, \ppHat, \ppBass];
+	// Every layer, including any future one, MUST play on ~clock and never
+	// on its own TempoClock (RESEARCH anti-pattern) -- that is what keeps
+	// every layer phase-locked through a glide and a bar-quantized restart.
+	~ppLayers = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad];
 	~ppLayers.do { |name| Pbindef(name).stop };
 	if (~ppRampStepper.notNil) { ~ppRampStepper.stop };
 	if (~clock.notNil) { ~clock.stop };
@@ -60,6 +63,30 @@ s.waitForBoot({
 		env = EnvGen.kr(Env.adsr(0.005, 0.1, 0.6, 0.05), gate, doneAction: 2);
 		sig = Saw.ar([freq, freq * 1.01]);  // detuned pair -> stereo
 		sig = RLPF.ar(sig, 700, 0.6);
+		Out.ar(out, sig * env * amp);
+	}).add;
+
+	SynthDef(\ppClap, { |out = 0, amp = 0.25|
+		var sig, env;
+		env = EnvGen.kr(Env.perc(0.005, 0.18), doneAction: 2);
+		sig = BPF.ar(WhiteNoise.ar(), 1500, 0.6);
+		Out.ar(out, (sig * env * amp) ! 2);
+	}).add;
+
+	SynthDef(\ppArp, { |out = 0, amp = 0.1, freq = 440, gate = 1|
+		var sig, env;
+		env = EnvGen.kr(Env.adsr(0.002, 0.05, 0.4, 0.08), gate, doneAction: 2);
+		sig = Pulse.ar([freq, freq * 1.003], 0.3);  // two slightly detuned pulses -> stereo
+		sig = LPF.ar(sig, freq * 4);
+		Out.ar(out, sig * env * amp);
+	}).add;
+
+	SynthDef(\ppPad, { |out = 0, amp = 0.06, freq = 220, gate = 1|
+		var sig, env;
+		env = EnvGen.kr(Env.adsr(0.4, 0.3, 0.7, 1.2), gate, doneAction: 2);  // slow attack/release = pad character; gate lets Stop release it
+		sig = Saw.ar([freq, freq * 1.005, freq * 0.997]);  // 3-voice detune for width
+		sig = LPF.ar(sig, 1200);
+		sig = Splay.ar(sig);
 		Out.ar(out, sig * env * amp);
 	}).add;
 
@@ -154,6 +181,43 @@ s.waitForBoot({
 		// the bar end. Downbeat 8ths rest.
 		\midinote, Pseq([\rest, 33, \rest, 33, \rest, 33, \rest, 36], inf),
 		\legato, 0.8,
+		\out, ~ppMixBus,
+		\group, ~ppInstrGroup,
+	);
+
+	// Pbindef sets no \amp key -> the pattern sends the default event
+	// amplitude (0.1) to any synth with an amp control, overriding that
+	// SynthDef's own \amp default; the kick/hat/bass layers above rely on
+	// that default. These three new layers set \amp explicitly (matching
+	// each SynthDef's own \amp default above) so the mix balance is the one
+	// the voice was designed at, not the pattern-wide 0.1 fallback.
+	Pbindef(\ppClap,
+		\instrument, \ppClap,
+		\dur, 2,  // beats 2 and 4
+		\timingOffset, 1,
+		\amp, 0.25,
+		\out, ~ppMixBus,
+		\group, ~ppInstrGroup,
+	);
+
+	Pbindef(\ppArp,
+		\instrument, \ppArp,
+		\dur, 0.25,  // 16th notes
+		// A3, C4, E4, C4 -- an octave+ above Phase 1's A-minor bass root
+		\midinote, Pseq([57, 60, 64, 60], inf),
+		\legato, 0.6,
+		\amp, 0.1,
+		\out, ~ppMixBus,
+		\group, ~ppInstrGroup,
+	);
+
+	Pbindef(\ppPad,
+		\instrument, \ppPad,
+		\dur, 4,  // one chord per bar
+		// Am, then Am with a passing tone -- fixed two-bar loop
+		\midinote, Pseq([[45, 48, 52], [45, 48, 53]], inf),
+		\legato, 0.9,
+		\amp, 0.06,
 		\out, ~ppMixBus,
 		\group, ~ppInstrGroup,
 	);
