@@ -4,6 +4,19 @@
 
 PedalPulse is a personal soundtrack generator for indoor cycling workouts (e.g. Zwift). A SuperCollider engine continuously generates melodic techno / progressive trance (drums, bass, arpeggios, pads), and a small Tkinter Python app lets the rider set the tempo (BPM) to match the required cadence and an "EPIC level" that makes the music brighter and more energetic as the required effort rises. The app talks to the engine over OSC.
 
+## Current State
+
+**Shipped:** v1.0 Technical Proof (2026-10-10). The whole Python → OSC → SuperCollider chain works end to end. A six-layer fixed-loop trance groove plays on one TempoClock, and the GUI controls BPM (gliding over 2 bars), Start/Stop, five EPIC zones and master volume, all going through a −1 dBFS limiter. About 2,800 lines of Python (app + tests) and 2,350 lines of SuperCollider (engine + smoke test). There are 150 pytest tests and a 67-check headless smoke suite.
+
+**Open:** ENG-03, the 60-minute stability check, is still waiting on a manual test ride.
+
+## Next Milestone Goals
+
+Not defined yet; start with `/gsd-new-milestone`. The v2 candidates come from the deferred requirements:
+- Generative music: a shared harmony clock (GEN-01), variation across several timescales so a 60-minute ride doesn't feel looped (GEN-02), and EPIC also driving arrangement density (GEN-03)
+- Controls: an EPIC fine-tune slider (CTRL-01) and a configurable ramp time (CTRL-02)
+- Automation: playing back .zwo workout files (AUTO-01), deriving BPM from a cadence sensor (AUTO-02), and Zwift integration (AUTO-03)
+
 ## Core Value
 
 Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes the live, generated music in SuperCollider — the Python → OSC → SuperCollider chain works end to end.
@@ -11,6 +24,8 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 ## Requirements
 
 ### Validated
+
+All shipped in v1.0:
 
 - ✓ Engine runs on a dedicated TempoClock driven by a BPM value (kick + hat + A-minor bass loop) — Phase 1
 - ✓ Engine listens for OSC via OSCdef: `/pp/bpm <float>`, loopback-only, clamped 60–180, applied on the next beat — Phase 1
@@ -27,7 +42,7 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 
 ### Active
 
-- [ ] Long-session stability (60+ min without node/CPU growth) — master limiter already shipped in Phase 1; verified by a manual real-ride soak (non-blocking, no dedicated phase)
+- [ ] Long-session stability (ENG-03: 60+ min without node/CPU growth). Carried over from v1.0. The static support is in place (per-note voices free themselves, the node count is bounded in the smoke test); it still needs the manual test ride
 
 ### Out of Scope
 
@@ -71,7 +86,7 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 | Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | ✓ Good — Phase 2: one long-lived `~ppRampStepper` is the sole tempo writer (8-beat glide, beat-aligned engage, mid-glide retarget); UAT confirmed no jolt |
 | Tkinter for GUI | User preference, zero extra deps | ✓ Good — Phase 1 window works under Tk 9.0 |
 | Start SC and Python separately | Simpler; avoids process management in v1 | ✓ Good — `main.scd` in the SC IDE + `./run.sh` |
-| No Zwift integration in v1 | API availability/suitability unknown | — Pending |
+| No Zwift integration in v1 | API availability/suitability unknown | ✓ Good — v1.0 shipped without it; still a v2 candidate (AUTO-03) |
 | Accept Tk 8.6 and 9.x; project venv is python3.13 with Tk 9.0 via `./run.sh` | Research advised avoiding Tk 9.0, but the real Tk 9.0.3 widgets pass a widget-level smoke test; the startup gate only rejects Tk < 8.6 or a missing `_tkinter` | ✓ Good — Phase 1 |
 | OSC address `/pp/bpm` with loopback-only `srcID`, engine-side clamp and latest-wins next-beat apply | Engine validates independently of the GUI; bursts cost one apply per beat | ✓ Good — Phase 1 (19-check headless smoke test) |
 | GUI sends BPM on slider release and debounces nudges/keys at 150 ms | Prevents flooding the engine during drags and key auto-repeat | ✓ Good — Phase 1 |
@@ -81,6 +96,8 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 | EPIC = one raw control bus → one `Lag.kr` smoother (1.5 s) → one `\ppFx` synth deriving drive/cutoff/richness/reverb from that single value | All four parameters move in lockstep by construction; glides retarget smoothly mid-glide with no zipper | ✓ Good — Phase 3 (UAT: smooth zone glides, including back-to-back clicks) |
 | Master volume is a 0.2 s lagged gain inside `\ppMaster`, strictly before `Limiter.ar`, with a squared taper `(v/100)²` | Never bypass the limiter; equal slider moves feel like roughly equal loudness steps | ✓ Good — Phase 3 (VO2 + volume 100 peak ≤ limiter ceiling, UAT confirmed no clipping) |
 | Persistent FX/smoother synths have no envelope and are freed by the teardown block | Deliberate exception to the `doneAction: 2` rule, which still applies to per-note voices | ✓ Good — Phase 3 (leak-free re-evaluation checked headlessly) |
+| Re-evaluating `main.scd` keeps the transport state (`~ppWasPlaying = ~ppPlaying ? true`); only the first-ever evaluation autostarts | Milestone audit W1: re-evaluating after Stop used to restart the music while the GUI still showed "Start" | ✓ Good — quick task 261010-hyl (smoke checks for autostart / stays stopped / keeps playing) |
+| No resync after an engine restart (the GUI keeps its last values, the engine resets to defaults) | Follows from the send-only design; restarting the app resyncs | ⚠️ Revisit — milestone audit W2, accepted as tech debt in v1.0 |
 
 ## Evolution
 
@@ -100,4 +117,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-10 after dropping Phase 4 (engine → GUI feedback)*
+*Last updated: 2026-10-10 after v1.0 milestone*

@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 3
-current_phase_name: EPIC Zones & Volume
-status: completed
-stopped_at: Phase 4 dropped; all v1 phases complete
-last_updated: "2026-10-10T11:11:28.254Z"
+status: Awaiting next milestone
+stopped_at: v1.0 milestone archived (override closeout); awaiting next milestone
+last_updated: "2026-10-10T11:42:10.594Z"
 last_activity: 2026-10-10
-last_activity_desc: "Scope reduced: engine → GUI feedback dropped, the Python app stays send-only"
-state_head: 79985b7d6f0d041f42eb5546d8c91b897032ded1
+last_activity_desc: Milestone v1.0 completed and archived
+state_head: e565a64676fdca1e77c28219ab55f09a2d6b64b2
 progress:
   total_phases: 3
   completed_phases: 3
   total_plans: 11
   completed_plans: 11
   percent: 100
+current_phase: 3
+current_phase_name: EPIC Zones & Volume
 ---
 
 # Project State
@@ -23,16 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-10)
 
 **Core value:** Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes the live, generated music in SuperCollider — the Python → OSC → SuperCollider chain works end to end.
-**Current focus:** All v1 phases complete — ready to close the milestone
+**Current focus:** Planning the next milestone (v1.0 Technical Proof shipped 2026-10-10)
 
 ## Current Position
 
-Phase: 3 — EPIC Zones & Volume
-Plan: 4 of 4 complete
-Status: All phases complete
-Last activity: 2026-10-10 - Completed quick task 261010-hyl: Fix W1: keep transport state across main.scd re-evaluation so the engine does not autostart after Stop
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-10 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -93,13 +91,14 @@ None yet.
 - [Phase 2, open code-review findings]: WR-02 `test_send_play_coerces_bool_to_int` cannot detect a missing int() coercion; IN-01 glide lands at ~7.75 beats (WR-01 BuildError catch fixed in Phase 3 plan 01). See 02-REVIEW-DISPOSITION.md
 - [Phase 3, open code-review findings]: WR-01 `Debouncer.trigger()` token tracking breaks if `schedule()` fires synchronously; WR-02 `osc_client.py` CLI prints "sent" even when the send failed; IN-01 mutable default zone map; IN-02 `apply_entry()` sends before notifying. See 03-REVIEW-DISPOSITION.md; fix with `/gsd-code-review 03 --fix`
 - [Phase 2, UI review]: spacing scale inconsistent (`transport_row` pady=4 vs `nudge_row` pady=8). The "no feedback when the engine is not running" finding is accepted by design (send-only app)
+- [Milestone audit W2]: no resync after an engine restart. The GUI keeps its last values and the engine resets to defaults; restarting the app resyncs (accepted under the send-only design)
+- [v1.0 close]: closed as override_closeout. The Phase 1–3 VERIFICATION.md digests went stale after the W1 fix, and ENG-03 is still open (see MILESTONES.md)
 - [ENG-03]: CPU/timing coexistence with Zwift and macOS audio-device switching can only be known through the manual real-ride soak
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 261010-hyl | Fix W1: keep transport state across main.scd re-evaluation so the engine does not autostart after Stop | 2026-10-10 | 79985b7 | [261010-hyl-fix-w1-keep-transport-state-across-main-](./quick/261010-hyl-fix-w1-keep-transport-state-across-main-/) |
 
 ## Deferred Items
 
@@ -112,5 +111,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-10-10T07:03:02.725Z
-Stopped at: Phase 4 dropped; all v1 phases complete
+Stopped at: v1.0 milestone archived; next: /gsd-new-milestone
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
