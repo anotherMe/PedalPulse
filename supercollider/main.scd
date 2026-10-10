@@ -34,7 +34,13 @@ s.options.numOutputBusChannels = 2;
 s.waitForBoot({
 	// --- Idempotent re-evaluation (D-17 workflow: edit ~preGain, re-evaluate) ---
 	// Replace, never stack: stop the previous patterns/clock and free the
-	// previous nodes/bus before building anything new.
+	// previous nodes/bus before building anything new. The last BPM, EPIC,
+	// volume and transport state (playing/stopped) survive re-evaluation.
+	// Read the previous transport state BEFORE the teardown. nil (a fresh
+	// interpreter, the first-ever evaluation) maps to true, which keeps the
+	// D-15 autostart; false (the rider pressed Stop) keeps the engine
+	// stopped so it matches the GUI's "Start" label (audit W1).
+	~ppWasPlaying = ~ppPlaying ? true;
 	// ~ppLayers is the single source of truth for "every layer" -- Plan 04
 	// appends the new layers here and every stop/start loop below follows.
 	// Every layer, including any future one, MUST play on ~clock and never
@@ -345,7 +351,14 @@ s.waitForBoot({
 
 	~ppPlaying = false;
 	~ppTransportCount = 0;
-	~ppStart.value;  // D-15: autostart through the same path /pp/play uses
+	if (~ppWasPlaying) {
+		~ppStart.value;  // D-15: autostart through the same path /pp/play uses
+	} {
+		// The teardown already stopped every Pbindef and freed the old
+		// instrument group; ~ppStop here would only add a spurious count
+		// increment and gate broadcast.
+		"PedalPulse: was stopped before re-evaluation -- staying stopped (press Start in the app or send /pp/play 1)".postln;
+	};
 
 	// --- OSC control: /pp/bpm <float> ---
 	// Loopback-only (T-01-02): a nil port matches any port from 127.0.0.1,
@@ -417,6 +430,6 @@ s.waitForBoot({
 	if (~ppOscPort != 57120) {
 		"PedalPulse WARNING: OSC port is % but python_app/config.py sends to 57120 -- quit other sclang instances or pass --port %".format(~ppOscPort, ~ppOscPort).postln;
 	};
-	"PedalPulse: ready -- groove playing at % BPM, EPIC %, volume % (/pp/bpm, /pp/play, /pp/epic, /pp/volume)".format(~bpm, ~epic, ~volume).postln;
+	"PedalPulse: ready -- groove % at % BPM, EPIC %, volume % (/pp/bpm, /pp/play, /pp/epic, /pp/volume)".format(if (~ppPlaying) { "playing" } { "stopped" }, ~bpm, ~epic, ~volume).postln;
 	~ppReady = true;
 });

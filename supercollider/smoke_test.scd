@@ -36,6 +36,9 @@ root = File.realpath(thisProcess.nowExecutingPath).dirname.dirname;
 Server.default = s = Server(\ppSmoke, NetAddr("127.0.0.1", 57140));
 
 ~ppReady = false;
+// The first load must see a fresh interpreter's nil transport state, which
+// proves the D-15 autostart default rather than a leftover value.
+~ppPlaying = nil;
 
 // Throws so a failing check aborts the rest of the test immediately instead
 // of falling through to later checks -- the top-level `try` below is what
@@ -379,6 +382,24 @@ fork({
 		fail.("initial tempo 120", "got % BPM".format(~clock.tempo * 60));
 	};
 	checkOk.("initial tempo 120");
+
+	// --- autostart (D-15, audit W1 case a): the first-ever evaluation, from
+	// a nil transport state, plays every layer through ~ppStart exactly once.
+	// ~ppStart runs before ~ppReady is set, so no wait is needed. ---
+	{
+		if (~ppPlaying != true) {
+			fail.("autostart", "~ppPlaying is % after the first evaluation (expected true)".format(~ppPlaying));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("autostart", "Pbindef(%) not playing after the first evaluation".format(name));
+			};
+		};
+		if (~ppTransportCount != 1) {
+			fail.("autostart", "~ppTransportCount % != 1 after the first evaluation (exactly one ~ppStart expected)".format(~ppTransportCount));
+		};
+		checkOk.("autostart");
+	}.value;
 
 	venvPython = root +/+ ".venv/bin/python";
 	venvOk = File.exists(venvPython);
@@ -1707,6 +1728,10 @@ fork({
 		NodeWatcher.register(oldFx, true);
 		NodeWatcher.register(oldSmoother, true);
 
+		if (~ppPlaying != true) {
+			fail.("re-evaluation", "engine is not playing before the reload (~ppPlaying %), so the keep-playing assertion would prove nothing".format(~ppPlaying));
+		};
+
 		~ppReady = false;
 		(root +/+ "supercollider/main.scd").load;
 
@@ -1720,12 +1745,15 @@ fork({
 		};
 
 		if (~ppPlaying.not) {
-			fail.("re-evaluation", "~ppPlaying is false after reload (autostart should bring it back up)");
+			fail.("re-evaluation", "~ppPlaying is false after reload (re-evaluation while playing must keep playing)");
 		};
 		~ppLayers.do { |name|
 			if (Pbindef(name).isPlaying.not) {
-				fail.("re-evaluation", "Pbindef(%) not playing after reload (autostart should bring it back up)".format(name));
+				fail.("re-evaluation", "Pbindef(%) not playing after reload (re-evaluation while playing must keep playing)".format(name));
 			};
+		};
+		if (~ppTransportCount != 1) {
+			fail.("re-evaluation", "~ppTransportCount % != 1 after a playing re-evaluation (exactly one ~ppStart expected)".format(~ppTransportCount));
 		};
 
 		if (oldClock.isRunning) {
@@ -1818,6 +1846,68 @@ fork({
 			fail.("volume re-evaluation", "new volume bus % is not within 1e-4 of the taper of 35 (%)".format(readCtl.(~ppVolumeBus.index), ~ppVolumeAmp.(35)));
 		};
 		checkOk.("volume re-evaluation");
+	}.value;
+
+	// --- re-evaluation stays stopped (GUI-02, audit W1): Stop, then
+	// re-evaluate main.scd. The transport state survives the reload, so the
+	// groove stays silent (matching the GUI's "Start" label), and the next
+	// /pp/play 1 is not swallowed by the idempotency guard. ---
+	{
+		var elapsed9 = 0, afterBarSecs;
+
+		sendPlay.(0);
+		if (waitForPlaying.(false, 3).not) {
+			fail.("re-evaluation stays stopped", "precondition: /pp/play 0 did not stop the engine within 3s");
+		};
+		// Let the second guarded gate broadcast ~ppStop schedules on the
+		// SystemClock fire before the teardown frees ~ppInstrGroup.
+		0.5.wait;
+
+		~ppReady = false;
+		(root +/+ "supercollider/main.scd").load;
+		while ({ ~ppReady.not and: { elapsed9 < 30 } }) {
+			0.5.wait;
+			elapsed9 = elapsed9 + 0.5;
+		};
+		if (~ppReady.not) {
+			fail.("re-evaluation stays stopped", "engine never became ready again after reload");
+		};
+
+		if (~ppPlaying != false) {
+			fail.("re-evaluation stays stopped", "~ppPlaying is % after reload (expected false: a stopped engine must stay stopped)".format(~ppPlaying));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying) {
+				fail.("re-evaluation stays stopped", "Pbindef(%) is playing after a stopped re-evaluation".format(name));
+			};
+		};
+		if (~ppTransportCount != 0) {
+			fail.("re-evaluation stays stopped", "~ppTransportCount % != 0 after reload (~ppStart ran during a stopped re-evaluation)".format(~ppTransportCount));
+		};
+
+		// Past the next bar line, where a quant-4 autostart would have entered.
+		afterBarSecs = ~clock.beatDur * 6;
+		afterBarSecs.wait;
+		afterBarSecs = instrChildCount.();
+		if (afterBarSecs != 0) {
+			fail.("re-evaluation stays stopped", "% instrument nodes are sounding after a stopped re-evaluation".format(afterBarSecs));
+		};
+
+		// The rider's next Start must not be swallowed by the guard.
+		sendPlay.(1);
+		if (waitForPlaying.(true, 3).not) {
+			fail.("re-evaluation stays stopped", "/pp/play 1 after a stopped re-evaluation did not start the engine within 3s");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("re-evaluation stays stopped", "Pbindef(%) not playing after /pp/play 1 following a stopped re-evaluation".format(name));
+			};
+		};
+		if (~ppTransportCount != 1) {
+			fail.("re-evaluation stays stopped", "~ppTransportCount % != 1 after /pp/play 1 (Start did not go through ~ppStart exactly once)".format(~ppTransportCount));
+		};
+
+		checkOk.("re-evaluation stays stopped");
 	}.value;
 
 	"SMOKE PASS".postln;
