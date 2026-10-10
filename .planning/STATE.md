@@ -4,16 +4,16 @@ current_phase: 3
 current_phase_name: EPIC Zones & Volume
 status: completed
 stopped_at: Phase 4 dropped; all v1 phases complete
-last_updated: "2026-10-10T07:03:02.948Z"
+last_updated: "2026-10-10T11:11:28.254Z"
 last_activity: 2026-10-10
-state_head: 85dc89fc0b0f3b69a704801e687da9516216fe52
+last_activity_desc: "Scope reduced: engine → GUI feedback dropped, the Python app stays send-only"
+state_head: 79985b7d6f0d041f42eb5546d8c91b897032ded1
 progress:
   total_phases: 3
   completed_phases: 3
   total_plans: 11
   completed_plans: 11
   percent: 100
-last_activity_desc: "Scope reduced: engine → GUI feedback dropped, the Python app stays send-only"
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-10)
 Phase: 3 — EPIC Zones & Volume
 Plan: 4 of 4 complete
 Status: All phases complete
-Last activity: 2026-10-10 — Scope reduced: engine → GUI feedback dropped, the Python app stays send-only
+Last activity: 2026-10-10 - Completed quick task 261010-hyl: Fix W1: keep transport state across main.scd re-evaluation so the engine does not autostart after Stop
 
 Progress: [██████████] 100%
 
@@ -94,6 +94,12 @@ None yet.
 - [Phase 3, open code-review findings]: WR-01 `Debouncer.trigger()` token tracking breaks if `schedule()` fires synchronously; WR-02 `osc_client.py` CLI prints "sent" even when the send failed; IN-01 mutable default zone map; IN-02 `apply_entry()` sends before notifying. See 03-REVIEW-DISPOSITION.md; fix with `/gsd-code-review 03 --fix`
 - [Phase 2, UI review]: spacing scale inconsistent (`transport_row` pady=4 vs `nudge_row` pady=8). The "no feedback when the engine is not running" finding is accepted by design (send-only app)
 - [ENG-03]: CPU/timing coexistence with Zwift and macOS audio-device switching can only be known through the manual real-ride soak
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261010-hyl | Fix W1: keep transport state across main.scd re-evaluation so the engine does not autostart after Stop | 2026-10-10 | 79985b7 | [261010-hyl-fix-w1-keep-transport-state-across-main-](./quick/261010-hyl-fix-w1-keep-transport-state-across-main-/) |
 
 ## Deferred Items
 
