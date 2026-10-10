@@ -1820,6 +1820,68 @@ fork({
 		checkOk.("volume re-evaluation");
 	}.value;
 
+	// --- re-evaluation stays stopped (GUI-02, audit W1): Stop, then
+	// re-evaluate main.scd. The transport state survives the reload, so the
+	// groove stays silent (matching the GUI's "Start" label), and the next
+	// /pp/play 1 is not swallowed by the idempotency guard. ---
+	{
+		var elapsed9 = 0, afterBarSecs;
+
+		sendPlay.(0);
+		if (waitForPlaying.(false, 3).not) {
+			fail.("re-evaluation stays stopped", "precondition: /pp/play 0 did not stop the engine within 3s");
+		};
+		// Let the second guarded gate broadcast ~ppStop schedules on the
+		// SystemClock fire before the teardown frees ~ppInstrGroup.
+		0.5.wait;
+
+		~ppReady = false;
+		(root +/+ "supercollider/main.scd").load;
+		while ({ ~ppReady.not and: { elapsed9 < 30 } }) {
+			0.5.wait;
+			elapsed9 = elapsed9 + 0.5;
+		};
+		if (~ppReady.not) {
+			fail.("re-evaluation stays stopped", "engine never became ready again after reload");
+		};
+
+		if (~ppPlaying != false) {
+			fail.("re-evaluation stays stopped", "~ppPlaying is % after reload (expected false: a stopped engine must stay stopped)".format(~ppPlaying));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying) {
+				fail.("re-evaluation stays stopped", "Pbindef(%) is playing after a stopped re-evaluation".format(name));
+			};
+		};
+		if (~ppTransportCount != 0) {
+			fail.("re-evaluation stays stopped", "~ppTransportCount % != 0 after reload (~ppStart ran during a stopped re-evaluation)".format(~ppTransportCount));
+		};
+
+		// Past the next bar line, where a quant-4 autostart would have entered.
+		afterBarSecs = ~clock.beatDur * 6;
+		afterBarSecs.wait;
+		afterBarSecs = instrChildCount.();
+		if (afterBarSecs != 0) {
+			fail.("re-evaluation stays stopped", "% instrument nodes are sounding after a stopped re-evaluation".format(afterBarSecs));
+		};
+
+		// The rider's next Start must not be swallowed by the guard.
+		sendPlay.(1);
+		if (waitForPlaying.(true, 3).not) {
+			fail.("re-evaluation stays stopped", "/pp/play 1 after a stopped re-evaluation did not start the engine within 3s");
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("re-evaluation stays stopped", "Pbindef(%) not playing after /pp/play 1 following a stopped re-evaluation".format(name));
+			};
+		};
+		if (~ppTransportCount != 1) {
+			fail.("re-evaluation stays stopped", "~ppTransportCount % != 1 after /pp/play 1 (Start did not go through ~ppStart exactly once)".format(~ppTransportCount));
+		};
+
+		checkOk.("re-evaluation stays stopped");
+	}.value;
+
 	"SMOKE PASS".postln;
 	s.quit(onComplete: { 0.exit });
 	}.try({ |err|
