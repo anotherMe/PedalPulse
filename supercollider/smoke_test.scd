@@ -36,6 +36,9 @@ root = File.realpath(thisProcess.nowExecutingPath).dirname.dirname;
 Server.default = s = Server(\ppSmoke, NetAddr("127.0.0.1", 57140));
 
 ~ppReady = false;
+// The first load must see a fresh interpreter's nil transport state, which
+// proves the D-15 autostart default rather than a leftover value.
+~ppPlaying = nil;
 
 // Throws so a failing check aborts the rest of the test immediately instead
 // of falling through to later checks -- the top-level `try` below is what
@@ -379,6 +382,24 @@ fork({
 		fail.("initial tempo 120", "got % BPM".format(~clock.tempo * 60));
 	};
 	checkOk.("initial tempo 120");
+
+	// --- autostart (D-15, audit W1 case a): the first-ever evaluation, from
+	// a nil transport state, plays every layer through ~ppStart exactly once.
+	// ~ppStart runs before ~ppReady is set, so no wait is needed. ---
+	{
+		if (~ppPlaying != true) {
+			fail.("autostart", "~ppPlaying is % after the first evaluation (expected true)".format(~ppPlaying));
+		};
+		~ppLayers.do { |name|
+			if (Pbindef(name).isPlaying.not) {
+				fail.("autostart", "Pbindef(%) not playing after the first evaluation".format(name));
+			};
+		};
+		if (~ppTransportCount != 1) {
+			fail.("autostart", "~ppTransportCount % != 1 after the first evaluation (exactly one ~ppStart expected)".format(~ppTransportCount));
+		};
+		checkOk.("autostart");
+	}.value;
 
 	venvPython = root +/+ ".venv/bin/python";
 	venvOk = File.exists(venvPython);
@@ -1707,6 +1728,10 @@ fork({
 		NodeWatcher.register(oldFx, true);
 		NodeWatcher.register(oldSmoother, true);
 
+		if (~ppPlaying != true) {
+			fail.("re-evaluation", "engine is not playing before the reload (~ppPlaying %), so the keep-playing assertion would prove nothing".format(~ppPlaying));
+		};
+
 		~ppReady = false;
 		(root +/+ "supercollider/main.scd").load;
 
@@ -1720,12 +1745,15 @@ fork({
 		};
 
 		if (~ppPlaying.not) {
-			fail.("re-evaluation", "~ppPlaying is false after reload (autostart should bring it back up)");
+			fail.("re-evaluation", "~ppPlaying is false after reload (re-evaluation while playing must keep playing)");
 		};
 		~ppLayers.do { |name|
 			if (Pbindef(name).isPlaying.not) {
-				fail.("re-evaluation", "Pbindef(%) not playing after reload (autostart should bring it back up)".format(name));
+				fail.("re-evaluation", "Pbindef(%) not playing after reload (re-evaluation while playing must keep playing)".format(name));
 			};
+		};
+		if (~ppTransportCount != 1) {
+			fail.("re-evaluation", "~ppTransportCount % != 1 after a playing re-evaluation (exactly one ~ppStart expected)".format(~ppTransportCount));
 		};
 
 		if (oldClock.isRunning) {
