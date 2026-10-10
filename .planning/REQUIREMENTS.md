@@ -36,8 +36,6 @@ Requirements for initial release (technical proof). Each maps to roadmap phases.
 ### Link
 
 - [x] **LINK-01**: Every GUI control change reaches the engine over OSC in real time; rapid slider drags are throttled/coalesced so they don't flood the engine
-- [ ] **LINK-02**: GUI shows a connected/disconnected indicator driven by a heartbeat sent from the engine
-- [ ] **LINK-03**: GUI displays the engine's actual current BPM (including mid-ramp) and current EPIC level as reported by the engine
 
 ## v2 Requirements
 
@@ -75,6 +73,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | SuperCollider quarks / third-party extensions | Stock SC classes suffice; quarks add install fragility |
 | Cadence→BPM formula | User sets BPM directly by feel |
 | Time-stretching pre-recorded tracks | Product is live synthesis, not playlist manipulation |
+| Engine → GUI feedback: heartbeat connection indicator (was LINK-02) and live engine BPM/EPIC readout (was LINK-03) | Dropped 2026-10-10: not needed for a deliberately simple app; the Python app stays send-only |
 
 ## Traceability
 
@@ -84,7 +83,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | ENG-01 | Phase 2 | Complete |
 | ENG-02 | Phase 1 | Complete |
-| ENG-03 | Phase 4 | Pending |
+| ENG-03 | Manual real-ride soak (no phase) | Pending (non-blocking) |
 | ENG-04 | Phase 1 | Complete |
 | TEMPO-01 | Phase 2 | Complete |
 | TEMPO-02 | Phase 2 | Complete |
@@ -97,14 +96,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GUI-03 | Phase 3 | Complete |
 | GUI-04 | Phase 1 | Complete |
 | LINK-01 | Phase 1 | Complete |
-| LINK-02 | Phase 4 | Pending |
-| LINK-03 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 17 total
-- Mapped to phases: 17
+- v1 requirements: 15 total (LINK-02 and LINK-03 moved to Out of Scope)
+- Mapped to phases: 14
+- Verified by a manual soak, no phase: 1 (ENG-03)
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-08*
-*Last updated: 2026-10-08 after roadmap creation (traceability filled)*
+*Last updated: 2026-10-10 after dropping engine → GUI feedback (LINK-02/LINK-03 out of scope; ENG-03 verified by a manual soak)*

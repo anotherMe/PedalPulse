@@ -27,9 +27,7 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 
 ### Active
 
-- [ ] Long-session stability (60+ min without node/CPU growth) — master limiter already shipped in Phase 1; soak test in Phase 4
-- [ ] Connection indicator in the GUI driven by an engine heartbeat (UDP OSC fails silently otherwise)
-- [ ] GUI displays the engine's actual current BPM (mid-ramp) and EPIC
+- [ ] Long-session stability (60+ min without node/CPU growth) — master limiter already shipped in Phase 1; verified by a manual real-ride soak (non-blocking, no dedicated phase)
 
 ### Out of Scope
 
@@ -42,6 +40,7 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 - Multiple tracks / sub-styles selection — one style is enough for v1
 - Layer density / builds & drops / harmonic mood driven by EPIC — v1 EPIC means brightness/energy; others are later enrichment
 - Mobile / web control UI — Tkinter desktop app on the same Mac
+- Engine → GUI feedback (heartbeat connection indicator, live engine BPM/EPIC readout) — dropped 2026-10-10 to keep the app simple; the Python app stays send-only
 
 ## Context
 
@@ -68,7 +67,7 @@ Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes th
 | EPIC = brightness/energy (filters, drive, FX) for v1 | Most direct, audible mapping; density/harmony/builds deferred | ✓ Good — Phase 3 UAT: each zone up sounds brighter and more energetic, all parameters moving together |
 | EPIC control = zone preset buttons only in v1 | Quick hits between intervals; fine-tune slider deferred to v2 | ✓ Good — Phase 3 five zone buttons |
 | Fixed loop music for v1, generative evolution in v2 | v1 is a tech proof of the control chain | ✓ Good — Phase 2 six-layer fixed loop accepted by ear as melodic techno / trance |
-| Add heartbeat-based connection indicator | Research: UDP OSC fails silently | — Pending |
+| Add heartbeat-based connection indicator | Research: UDP OSC fails silently | ✗ Dropped 2026-10-10 — not needed for a deliberately simple app; the Python app stays send-only (no engine → GUI channel) |
 | Smooth BPM ramps over a few bars | Avoid audible jolts mid-ride | ✓ Good — Phase 2: one long-lived `~ppRampStepper` is the sole tempo writer (8-beat glide, beat-aligned engage, mid-glide retarget); UAT confirmed no jolt |
 | Tkinter for GUI | User preference, zero extra deps | ✓ Good — Phase 1 window works under Tk 9.0 |
 | Start SC and Python separately | Simpler; avoids process management in v1 | ✓ Good — `main.scd` in the SC IDE + `./run.sh` |
@@ -101,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-09 after Phase 3*
+*Last updated: 2026-10-10 after dropping Phase 4 (engine → GUI feedback)*

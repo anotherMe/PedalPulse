@@ -2,7 +2,7 @@
 
 ## Overview
 
-PedalPulse is built as four vertical slices. Each one adds a capability the rider can hear or see, end to end through the Python GUI, OSC, and SuperCollider chain. Phase 1 is the walking skeleton. A single sclang entry file plays a basic loop on a dedicated TempoClock through a limited master bus. A Tkinter app (with a Tcl/Tk 8.6 check) sends BPM over OSC, and the tempo changes. Phase 2 builds that into the full drums/bass/arp/pad groove, with beat-synchronous tempo glides and start/stop. Phase 3 adds the EPIC zone presets and master volume, so energy and loudness follow the workout. Phase 4 closes the loop in the other direction. An engine heartbeat drives a connection indicator, the GUI shows the engine's actual BPM and EPIC, and a 60-minute soak proves the engine can last a full ride. Some safety conventions start in Phase 1 and every later slice inherits them: the master limiter, self-freeing synths (doneAction: 2), the posted OSC port, and server-boot gating. v1 music is a fixed loop; generative evolution is v2.
+PedalPulse is built as three vertical slices. Each one adds a capability the rider can hear or see, end to end through the Python GUI, OSC, and SuperCollider chain. Phase 1 is the walking skeleton. A single sclang entry file plays a basic loop on a dedicated TempoClock through a limited master bus. A Tkinter app (with a Tcl/Tk 8.6 check) sends BPM over OSC, and the tempo changes. Phase 2 builds that into the full drums/bass/arp/pad groove, with beat-synchronous tempo glides and start/stop. Phase 3 adds the EPIC zone presets and master volume, so energy and loudness follow the workout. The Python app stays send-only: there is no engine → GUI channel. The 60-minute stability requirement (ENG-03) is checked by a manual real-ride soak, not by a dedicated phase. Some safety conventions start in Phase 1 and every later slice inherits them: the master limiter, self-freeing synths (doneAction: 2), the posted OSC port, and server-boot gating. v1 music is a fixed loop; generative evolution is v2.
 
 ## Phases
 
@@ -15,7 +15,6 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Tempo Link Skeleton** - Single sclang entry file plays a basic loop; Tkinter BPM control changes its tempo over OSC (completed 2026-10-09)
 - [x] **Phase 2: Full Groove & Smooth Tempo** - Drums, bass, arp and pad play together, glide beat-synchronously to new BPMs, and start/stop from the GUI (completed 2026-10-09)
 - [x] **Phase 3: EPIC Zones & Volume** - Five zone preset buttons make the music brighter and more energetic; master volume from the GUI, never clipping (completed 2026-10-09)
-- [ ] **Phase 4: Live Feedback & Ride Endurance** - Heartbeat connection indicator, live engine BPM/EPIC display, and 60+ minute stability
 
 ## Phase Details
 
@@ -102,29 +101,13 @@ Plans:
 
 **UI hint**: yes
 
-### Phase 4: Live Feedback & Ride Endurance
-
-**Goal:** As a rider, I want to see the engine is alive and what it is actually playing, so that I can trust it through a full ride.
-**Mode:** mvp
-**Depends on:** Phase 3
-**Requirements:** ENG-03, LINK-02, LINK-03
-**Success Criteria** (what must be TRUE):
-  1. The GUI shows "connected" while the engine runs. It switches to "disconnected" within a few seconds of quitting sclang (or if sclang was never started), and returns to "connected" on its own when the engine comes back
-  2. The GUI shows the engine's actual current BPM, updating live through a tempo glide (mid-ramp values visible), and the current EPIC level as reported by the engine
-  3. The GUI stays responsive while engine status streams in, with no freezes or crashes from status traffic
-  4. User leaves the engine playing for 60+ minutes (with BPM and zone changes along the way, alongside Zwift) without audio dropouts, and the server's synth node count and CPU load stay flat
-
-**Plans:** TBD
-**UI hint**: yes
-
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Tempo Link Skeleton | 3/3 | Complete    | 2026-10-09 |
 | 2. Full Groove & Smooth Tempo | 4/4 | Complete    | 2026-10-09 |
 | 3. EPIC Zones & Volume | 4/4 | Complete    | 2026-10-09 |
-| 4. Live Feedback & Ride Endurance | 0/TBD | Not started | - |

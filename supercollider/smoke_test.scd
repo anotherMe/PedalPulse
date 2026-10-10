@@ -1560,7 +1560,7 @@ fork({
 			fail.("fx headroom", "post-FX peak % at EPIC 10 exceeds 0.891".format(peakVal));
 		};
 		checkOk.("fx headroom");
-		// Informational only (Phase 4 soak), not an assertion.
+		// Informational only (ENG-03 soak), not an assertion.
 		"PedalPulse smoke: server CPU avg % peak %".format(s.avgCPU, s.peakCPU).postln;
 
 		// --- mix headroom: the pre-limiter sum on ~ppMixBus stays under the
