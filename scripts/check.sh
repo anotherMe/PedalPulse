@@ -158,7 +158,8 @@ else
 	exit 1
 fi
 
-# Library check: golden self-check, parity, and (in later plans) the rest.
+# Library check: static tier (every library file), golden self-check, parity,
+# selection, fallback and containment tiers.
 LIB_LOG="${TMPDIR:-/tmp}/pedalpulse-library.log"
 
 TIMEOUT_CMD=""
@@ -177,6 +178,17 @@ if [ "$rc" -ne 0 ] || ! grep -qx 'LIBRARY PASS' "$LIB_LOG"; then
 	echo "CHECK FAILED: library check (log: $LIB_LOG)" >&2
 	exit 1
 fi
+
+# A library file the check never looked at is a hole in the check: the number of
+# "LIBCHECK OK: <category>/<stem>" lines must equal the number of .scd files on
+# disk (the _template.scd files included).
+want=$(find supercollider/library -name '*.scd' ! -name '.*' | wc -l | tr -d ' ')
+got=$(grep -c '^LIBCHECK OK: ' "$LIB_LOG" || true)
+if [ "$want" -eq 0 ] || [ "$got" -ne "$want" ]; then
+	echo "CHECK FAILED: library file count (LIBCHECK OK lines: $got, .scd files on disk: $want)" >&2
+	exit 1
+fi
+echo "CHECK OK: library file count ($want files)"
 
 if [ "$LIBRARY_ONLY" -eq 1 ]; then
 	echo "CHECK PASS (library only)"
