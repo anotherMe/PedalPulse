@@ -830,7 +830,7 @@ fork({
 
 	// --- all layers playing (ENG-01) ---
 	{
-		var expected = Set[\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad];
+		var expected = Set[\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad, \ppLead];
 		if (~ppLayers.asSet != expected) {
 			fail.("all layers playing", "~ppLayers % != expected %".format(~ppLayers.asSet, expected));
 		};

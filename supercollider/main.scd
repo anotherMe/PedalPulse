@@ -74,12 +74,15 @@ s.waitForBoot({
 	// D-15 autostart; false (the rider pressed Stop) keeps the engine
 	// stopped so it matches the GUI's "Start" label (audit W1).
 	~ppWasPlaying = ~ppPlaying ? true;
-	// ~ppLayers is the single source of truth for "every layer" -- Plan 04
-	// appends the new layers here and every stop/start loop below follows.
+	// ~ppLayers is the single source of truth for "every layer" -- every
+	// stop/start loop below follows it, so a layer added here (the lead is the
+	// 7th, D-04) is reached by teardown, ~ppStart and ~ppStop with no other edit.
 	// Every layer, including any future one, MUST play on ~clock and never
 	// on its own TempoClock (RESEARCH anti-pattern) -- that is what keeps
 	// every layer phase-locked through a glide and a bar-quantized restart.
-	~ppLayers = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad];
+	// The lead plays rests under classic (D-05) and the selected melody's
+	// lead rows otherwise.
+	~ppLayers = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad, \ppLead];
 	~ppLayers.do { |name| Pbindef(name).stop };
 	if (~ppRampStepper.notNil) { ~ppRampStepper.stop };
 	if (~clock.notNil) { ~clock.stop };
@@ -144,6 +147,20 @@ s.waitForBoot({
 	~ppLibCategories.do { |cat|
 		if (~ppLibEnsure.(cat, \classic).not) {
 			Error("PedalPulse ERROR: library file % is required and failed to load -- the engine cannot start".format(~ppLibPath.(cat, \classic))).throw;
+		};
+	};
+
+	// A stored non-classic selection (it survives a re-evaluation like ~bpm)
+	// is loaded again here, because the registry was just rebuilt. If its file
+	// is gone or broken, fall back to classic loudly (~ppLibEnsure has already
+	// logged the ERROR naming the file).
+	~ppLibCategories.do { |cat|
+		var stem = ~ppSel[cat];
+		if ((stem != \classic) and: { stem != \auto } and: { stem.notNil }) {
+			if (~ppLibEnsure.(cat, stem).not) {
+				~ppSel[cat] = \classic;
+				~ppLog.("PedalPulse ERROR: % selection % could not be re-loaded -- back to classic".format(cat, stem));
+			};
 		};
 	};
 
@@ -363,11 +380,23 @@ s.waitForBoot({
 		};
 	}, '/pp/volume', srcID: NetAddr("127.0.0.1", nil));
 
+	// --- OSC control: /pp/progression, /pp/palette, /pp/melody <string> (LIB-02, LIB-05) ---
+	// Loopback-only, same srcID guard as the four addresses above. The argument
+	// is `auto` or a library file stem. The handler only validates and
+	// delegates: the file is read in a background Routine and the switch lands
+	// on the next bar line. Loading and s.sync never happen in the responder
+	// (ARCHITECTURE Anti-Pattern 4). Re-sending the current name reloads its
+	// file. Nothing is ever sent back. These three addresses and the
+	// auto-or-stem argument are the frozen interface Phase 5's GUI uses.
+	OSCdef(\pp_progression, { |msg| ~ppSelect.(\progressions, msg[1], '/pp/progression') }, '/pp/progression', srcID: NetAddr("127.0.0.1", nil));
+	OSCdef(\pp_palette, { |msg| ~ppSelect.(\palettes, msg[1], '/pp/palette') }, '/pp/palette', srcID: NetAddr("127.0.0.1", nil));
+	OSCdef(\pp_melody, { |msg| ~ppSelect.(\melodies, msg[1], '/pp/melody') }, '/pp/melody', srcID: NetAddr("127.0.0.1", nil));
+
 	~ppOscPort = NetAddr.langPort;
 	"PedalPulse: listening for OSC on port %".format(~ppOscPort).postln;
 	if (~ppOscPort != 57120) {
 		"PedalPulse WARNING: OSC port is % but python_app/config.py sends to 57120 -- quit other sclang instances or pass --port %".format(~ppOscPort, ~ppOscPort).postln;
 	};
-	"PedalPulse: ready -- groove % at % BPM, EPIC %, volume % (/pp/bpm, /pp/play, /pp/epic, /pp/volume)".format(if (~ppPlaying) { "playing" } { "stopped" }, ~bpm, ~epic, ~volume).postln;
+	"PedalPulse: ready -- groove % at % BPM, EPIC %, volume %, progression %, melody %, palette % (/pp/bpm, /pp/play, /pp/epic, /pp/volume, /pp/progression, /pp/melody, /pp/palette)".format(if (~ppPlaying) { "playing" } { "stopped" }, ~bpm, ~epic, ~volume, ~ppSel[\progressions], ~ppSel[\melodies], ~ppSel[\palettes]).postln;
 	~ppReady = true;
 });

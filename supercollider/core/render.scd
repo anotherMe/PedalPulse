@@ -13,7 +13,14 @@
 // Events are always accessed with [\key], never dot syntax.
 
 // layer name -> role. A role is what a generator or a palette is asked for.
-~ppLayerRole = (ppKick: \kick, ppHat: \hat, ppClap: \clap, ppBass: \bass, ppArp: \arp, ppPad: \pad);
+// The lead (D-04) is the 7th layer. Its pitched fallback is the same as the
+// arp's: the module's generator, then classic's, then one silent bar. Classic
+// has no lead, so under classic the lead plays rests (D-05).
+~ppLayerRole = (ppKick: \kick, ppHat: \hat, ppClap: \clap, ppBass: \bass, ppArp: \arp, ppPad: \pad, ppLead: \lead);
+
+// role -> number of sounding rows (note not \rest) rendered since the engine
+// started; the Stop check reads it.
+~ppRoleNotes = ~ppRoleNotes ? IdentityDictionary.new;
 
 // The fixed drum grid is owned by the core, not by the library (a drum role
 // has no category). Row: [note, dur, amp, legato]; the note column is unused
@@ -70,10 +77,12 @@
 // Render one bar for a role: rows [instrument, note, dur, amp, legato] for a
 // pitched role, [instrument, dur, amp, legato] for a drum role.
 ~ppRenderBar = { |role, songBar, bar, layerState|
-	var cat, mod, key, gen, rows, inst, plan;
+	var cat, mod, key, gen, rows, inst, plan, out;
 	inst = ~ppInstrumentFor.(role);
 	if (~ppDrumGrid[role].notNil) {
-		~ppDrumGrid[role][\rows].collect { |r| [inst, r[1], r[2], r[3]] }
+		out = ~ppDrumGrid[role][\rows].collect { |r| [inst, r[1], r[2], r[3]] };
+		~ppRoleNotes[role] = (~ppRoleNotes[role] ? 0) + out.size;
+		out
 	} {
 		cat = ~ppRoleCategory[role];
 		mod = ~ppModuleFor.(cat);
@@ -92,7 +101,9 @@
 			gen = ~ppLib[cat][\classic] !? { |c| c[role] };
 		};
 		rows = if (gen.isFunction) { gen.value(plan, layerState[\state]) } { [[\rest, 4, 0, 1]] };
-		rows.collect { |r| [inst] ++ r }
+		out = rows.collect { |r| [inst] ++ r };
+		~ppRoleNotes[role] = (~ppRoleNotes[role] ? 0) + out.count { |r| r[1] != \rest };
+		out
 	}
 };
 
