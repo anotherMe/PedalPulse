@@ -94,12 +94,40 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| LIB-01 | Phase 4 | Pending |
+| LIB-02 | Phase 4 | Pending |
+| LIB-03 | Phase 4 | Pending |
+| LIB-04 | Phase 4 | Pending |
+| LIB-05 | Phase 4 | Pending |
+| LIB-06 | Phase 4 | Pending |
+| HARM-01 | Phase 6 | Pending |
+| HARM-02 | Phase 6 | Pending |
+| HARM-03 | Phase 6 | Pending |
+| HARM-04 | Phase 6 | Pending |
+| MEL-01 | Phase 8 | Pending |
+| MEL-02 | Phase 8 | Pending |
+| MEL-03 | Phase 8 | Pending |
+| MEL-04 | Phase 8 | Pending |
+| PAL-01 | Phase 7 | Pending |
+| PAL-02 | Phase 7 | Pending |
+| PAL-03 | Phase 7 | Pending |
+| PAL-04 | Phase 7 | Pending |
+| STRU-01 | Phase 9 | Pending |
+| STRU-02 | Phase 9 | Pending |
+| STRU-03 | Phase 9 | Pending |
+| EPIC-04 | Phase 9 | Pending |
+| EPIC-05 | Phase 9 | Pending |
+| GUI-05 | Phase 5 | Pending |
+| GUI-06 | Phase 5 | Pending |
+| GUI-07 | Phase 5 | Pending |
+| ENG-03 | Phase 9 | Pending |
+| ENG-05 | Phase 4 | Pending |
 
 **Coverage:**
 - v2.0 requirements: 28 total
-- Mapped to phases: 0
-- Unmapped: 28 ⚠️
+- Mapped to phases: 28
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-11*
-*Last updated: 2026-10-11 after initial definition*
+*Last updated: 2026-10-11 after roadmap creation (phases 4-9)*
