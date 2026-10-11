@@ -45,6 +45,7 @@ var recordBars, same, selfCheck, rowSortKey;
 var expectCounts, expectAmps;
 var sendSel, waitFor, venvPython, newLogs, barOf;
 var tmpRoot, realLibRoot, cleanupTmp, wr, shq, expectClassicBars, leadDiffs, freshText;
+var staticCheck, stripSource, forbiddenTokens, staticTmp, listStems;
 
 // Watchdog first, in case anything below hangs.
 SystemClock.sched(200, {
@@ -213,6 +214,9 @@ cleanupTmp = {
 	if (tmpRoot.notNil and: { tmpRoot.find("pedalpulse-libtest-").notNil }) {
 		("rm -rf" + shq.(tmpRoot) + shq.(tmpRoot ++ "_outside")).systemCmd;
 	};
+	if (staticTmp.notNil and: { staticTmp.find("pedalpulse-statictest-").notNil }) {
+		("rm -rf" + shq.(staticTmp)).systemCmd;
+	};
 };
 
 // wr.(relativePath, text): write a fixture inside the temporary library root.
@@ -256,6 +260,250 @@ leadDiffs = { |rws|
 	}
 };
 
+// --- Static tier (LIB-06, LIB-02): every library file, no server needed ---
+// Source with comments removed and string contents blanked, so the lint looks
+// at code only (a desc that happens to say "File" is not a file access).
+stripSource = { |src|
+	var out = String.new, i = 0, n = src.size, c, c2, closed;
+	while { i < n } {
+		c = src[i];
+		c2 = if ((i + 1) < n) { src[i + 1] } { $  };
+		if ((c == $/) and: { c2 == $/ }) {
+			while { (i < n) and: { src[i] != $\n } } { i = i + 1 };
+		} {
+			if ((c == $/) and: { c2 == $* }) {
+				i = i + 2;
+				closed = false;
+				while { (i < n) and: { closed.not } } {
+					if ((src[i] == $*) and: { ((i + 1) < n) and: { src[i + 1] == $/ } }) { closed = true };
+					i = i + 1;
+				};
+				i = i + 1;
+				out = out ++ " ";
+			} {
+				if (c == $") {
+					out = out ++ "\"";
+					i = i + 1;
+					while { (i < n) and: { src[i] != $" } } {
+						if (src[i] == $\\) { i = i + 2 } { i = i + 1 };
+					};
+					out = out ++ "\"";
+					i = i + 1;
+				} {
+					if (c == $$) {
+						out = out ++ "  ";
+						i = i + 2;
+					} {
+						out = out ++ c;
+						i = i + 1;
+					};
+				};
+			};
+		};
+	};
+	out
+};
+
+// What a library file may never contain: environment variables, patterns,
+// clocks, the server, synths, OSC, files and shell. A file is data plus pure
+// functions.
+forbiddenTokens = [
+	"~", "Pbindef", "Pdef", "Tdef", "Ndef", "Pbind", ".play", "fork", ".wait",
+	"Routine", "Task", "TempoClock", "SystemClock", "AppClock", "Server",
+	"Synth(", "Synth.", "OSCdef", "OSCFunc", "NetAddr", "unixCmd", "systemCmd",
+	"File", "Pipe", ".load", "thisProcess", "interpret"
+];
+
+// The stems (file names without .scd) in a folder: classic first, then sorted.
+listStems = { |dir|
+	var stems;
+	stems = (dir +/+ "*.scd").pathMatch.collect { |p| PathName(p).fileNameWithoutExtension };
+	stems = stems.reject { |n| n.beginsWith(".") }.sort;
+	if (stems.any { |n| n == "classic" }) { ["classic"] ++ stems.reject { |n| n == "classic" } } { stems }
+};
+
+// staticCheck.(libRoot, quiet) -> Array of failure Strings (empty means every
+// file passed). Uses the same ~ppLibLoad, ~ppValidate, ~ppRowsValid,
+// ~ppValidateVoices and ~ppRenderBar the engine uses. Prints one
+// "LIBCHECK OK: <category>/<stem>" per file unless quiet. Order: progressions,
+// melodies, palettes; in each, classic first, then sorted names.
+staticCheck = { |libRoot, quiet|
+	var failures = List.new, savedRoot, add, roleGens;
+	var snapKeys, snapPdef, snapTdef, snapOsc, newKeys, grown, logBefore;
+	var src, hit, mod, state, passA, passB, runPass, reasons, rendered, direct, fresh;
+	var stem, ok, nfail, path, dir, stems, sel, pre, names, ls;
+
+	savedRoot = ~ppLibRoot;
+	~ppLibRoot = libRoot;
+	~ppLib = (progressions: (), melodies: (), palettes: ());
+	~ppSel = (progressions: \classic, melodies: \classic, palettes: \classic);
+	~ppRenderErrors = ();
+	add = { |text| failures.add(text) };
+	roleGens = (progressions: [\bass, \pad], melodies: [\arp, \lead]);
+
+	// Every classic first: the round trip needs the fallback in place.
+	~ppLibCategories.do { |cat|
+		pre = if (File.exists(~ppLibPath.(cat, \classic))) { ~ppLibLoad.(cat, \classic) } { nil };
+		if (pre.notNil) {
+			pre[\rev] = 1;
+			~ppLib[cat].put(\classic, pre);
+			if ((cat == \palettes) and: { pre[\defs].isFunction }) {
+				try { pre[\defs].value } { |err| add.("palettes/classic defs threw: %".format(err.errorString)) };
+			};
+		};
+	};
+
+	~ppLibCategories.do { |cat|
+		dir = libRoot +/+ cat.asString;
+		stems = listStems.(dir);
+		if (stems.any { |n| n == "classic" }.not) { add.("% has no classic.scd".format(cat)) };
+		stems.do { |stemStr|
+			var selectable = (stemStr[0] != $_);
+			var label = "%/%".format(cat, stemStr);
+			nfail = failures.size;
+			if (selectable and: { ~ppStemValid.(stemStr).not }) {
+				add.("% breaks the naming rules (1-64 characters of a-z, 0-9 and _; auto is reserved)".format(label));
+			} {
+				stem = stemStr.asSymbol;
+				path = ~ppLibPath.(cat, stem);
+
+				// (a) loads, validates, and leaves nothing behind.
+				snapKeys = currentEnvironment.keys.copy;
+				snapPdef = Pdef.all.size;
+				snapTdef = Tdef.all.size;
+				snapOsc = OSCdef.all.size;
+				logBefore = ~ppLogCount;
+				mod = ~ppLibLoad.(cat, stem);
+				if (mod.isNil) {
+					add.("% did not load or validate: %".format(label, newLogs.(logBefore).select { |l| l.find("ERROR").notNil }.join(" | ")));
+				};
+				newKeys = currentEnvironment.keys.reject { |k| snapKeys.includes(k) or: { [\ppLogLines, \ppLogCount].includes(k) } };
+				if (newKeys.size > 0) {
+					add.("% has load-time side effects: new environment variable(s) %".format(label, newKeys.asArray));
+					newKeys.do { |k| currentEnvironment.removeAt(k) };
+				};
+				if ((Pdef.all.size != snapPdef) or: { Tdef.all.size != snapTdef } or: { OSCdef.all.size != snapOsc }) {
+					add.("% has load-time side effects: it created a Pdef, Tdef or OSCdef".format(label));
+				};
+
+				// (b) lint the code (comments and string contents removed).
+				src = try { stripSource.(File.readAllString(path)) } { nil };
+				if (src.isNil) {
+					add.("% could not be read for the lint".format(label));
+				} {
+					forbiddenTokens.do { |tok|
+						if (src.find(tok).notNil) {
+							add.("% uses the forbidden token \"%\" (a library file is data plus pure functions)".format(label, tok));
+						};
+					};
+				};
+
+				if (mod.notNil) {
+					// (c) generators: 16 bars, every one a valid 4-beat bar, replayable.
+					if (roleGens[cat].notNil) {
+						roleGens[cat].do { |role|
+							if (mod[role].isFunction) {
+								runPass = {
+									var st = (), bars = List.new;
+									if (mod[\init].isFunction) {
+										thisThread.randSeed = ~ppSeedFor.(~ppSongSeed, 0, role);
+										mod[\init].value(st);
+									};
+									16.do { |b|
+										thisThread.randSeed = ~ppSeedFor.(~ppSongSeed, b, role);
+										bars.add(mod[role].value(~ppPlanFor.(b, b, role), st));
+									};
+									bars.asArray
+								};
+								passA = try { runPass.value } { |err| add.("% % threw: %".format(label, role, err.errorString)); nil };
+								if (passA.notNil) {
+									passA.do { |rows, b|
+										var why = ~ppRowsValid.(rows);
+										if (why.notNil) { add.("% % bar %: %".format(label, role, b, why)) };
+									};
+									passB = try { runPass.value } { |err| nil };
+									if (same.(passA, passB).not) {
+										add.("% % does not replay the same bars from the same seed".format(label, role));
+									};
+								};
+							};
+						};
+					};
+
+					// (d) palette voices exist with the right controls.
+					if (cat == \palettes) {
+						if (mod[\defs].isFunction) {
+							try { mod[\defs].value } { |err| add.("% defs threw: %".format(label, err.errorString)) };
+						};
+						reasons = ~ppValidateVoices.(mod);
+						reasons.do { |r| add.("% %".format(label, r)) };
+					};
+
+					// (e) round trip through the primary use path (selectable stems only).
+					if (selectable) {
+						mod[\rev] = 1;
+						~ppLib[cat].put(stem, mod);
+						~ppSel[cat] = stem;
+						logBefore = ~ppLogCount;
+						try {
+							if (cat == \palettes) {
+								(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
+									ls = ();
+									4.do { |b|
+										var rows = ~ppRenderBar.(role, b, b, ls);
+										var entry = mod[\roles][role];
+										if (entry.notNil) {
+											rows.do { |r|
+												if (r[0] != entry[\instrument]) {
+													add.("% role % renders voice % instead of %".format(label, role, r[0], entry[\instrument]));
+												};
+											};
+										};
+									};
+								};
+							} {
+								roleGens[cat].do { |role|
+									ls = ();
+									rendered = 4.collect { |b| ~ppRenderBar.(role, b, b, ls) };
+									if (mod[role].isFunction) {
+										state = ();
+										if (mod[\init].isFunction) {
+											thisThread.randSeed = ~ppSeedFor.(~ppSongSeed, 0, role);
+											mod[\init].value(state);
+										};
+										direct = 4.collect { |b|
+											thisThread.randSeed = ~ppSeedFor.(~ppSongSeed, b, role);
+											mod[role].value(~ppPlanFor.(b, b, role), state)
+										};
+										rendered.do { |rows, b|
+											if (same.(rows.collect { |r| r.copyToEnd(1) }, direct[b]).not) {
+												add.("% % bar %: the rendered rows differ from the generator's own rows".format(label, role, b));
+											};
+										};
+									};
+								};
+							};
+						} { |err|
+							add.("% round trip threw: %".format(label, err.errorString));
+						};
+						fresh = newLogs.(logBefore);
+						if (fresh.any { |l| l.find("playing classic for this bar").notNil }) {
+							add.("% fell back to classic while playing: %".format(label, fresh.select { |l| l.find("playing classic for this bar").notNil }.join(" | ")));
+						};
+						~ppSel[cat] = \classic;
+					};
+				};
+			};
+			if ((failures.size == nfail) and: { quiet.not }) {
+				"LIBCHECK OK: %".format(label).postln;
+			};
+		};
+	};
+
+	~ppLibRoot = savedRoot;
+	failures.asArray
+};
+
 // What 16 bars of the shipped groove must contain (D-02: effective amps are
 // captured as they are, not "fixed").
 expectCounts = (ppKick: 64, ppHat: 64, ppClap: 32, ppBass: 64, ppArp: 256, ppPad: 16);
@@ -282,6 +530,75 @@ selfCheck = { |rows|
 fork({
 	var elapsed, golden, rec, rows, mismatches, shown, mark;
 	var gold4, matchGold4, restoreAll;
+	var sfail, bad, cp, expectFailure, wrs;
+
+	// ============================================================
+	// Static tier (LIB-06, LIB-02): no server yet. Every .scd file under
+	// supercollider/library, the _template.scd files included, is loaded
+	// and checked; the result is one LIBCHECK OK line per file.
+	// ============================================================
+	{
+		~ppRoot = root +/+ "supercollider";
+		~ppLibRoot = ~ppRoot +/+ "library";
+		["validate.scd", "loader.scd", "render.scd"].do { |name|
+			var r = (~ppRoot +/+ "core" +/+ name).load;
+			if (r.isNil) { fail.("static", "core module % failed to load".format(name)) };
+		};
+
+		sfail = staticCheck.(~ppLibRoot, false);
+		if (sfail.size > 0) {
+			fail.("static", sfail.join(" || "));
+		};
+		checkOk.("static check");
+
+		// Negative controls: six kinds of bad file must each fail the check.
+		// The fixtures live in a temporary root, never in supercollider/library.
+		staticTmp = Platform.defaultTempDir +/+ ("pedalpulse-statictest-" ++ Date.getDate.stamp);
+		["progressions", "melodies", "palettes"].do { |c| File.mkdir(staticTmp +/+ c) };
+		cp = { |rel|
+			var rc = ("cp" + shq.(~ppLibRoot +/+ rel) + shq.(staticTmp +/+ rel)).systemCmd;
+			if (rc != 0) { fail.("static setup", "cp of % failed with %".format(rel, rc)) };
+		};
+		cp.("melodies/classic.scd");
+		cp.("palettes/classic.scd");
+		// progressions/ stays empty: no classic.scd there.
+		wrs = { |rel, text| File.use(staticTmp +/+ rel, "w", { |f| f.write(text) }) };
+		wrs.("melodies/empty_rows.scd", "(desc: \"empty bar\", arp: { |plan, state| [] })\n");
+		wrs.("melodies/side_effect.scd", "~ppStaticProbeVar = 1;\n(desc: \"side effect\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+		wrs.("melodies/forbidden_call.scd", "(desc: \"forbidden call\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] }, helper: { Synth(\\default) })\n");
+		wrs.("melodies/Bad Name.scd", "(desc: \"bad name\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+		wrs.("melodies/auto.scd", "(desc: \"reserved name\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+
+		bad = staticCheck.(staticTmp, true);
+		currentEnvironment.removeAt(\ppStaticProbeVar);
+		expectFailure = { |what, needle|
+			if (bad.any { |f| f.find(needle).notNil }.not) {
+				fail.("static check catches bad files", "no failure for % (looked for \"%\"), got: %".format(what, needle, bad));
+			};
+		};
+		expectFailure.("a category without classic.scd", "progressions has no classic.scd");
+		expectFailure.("a generator returning an empty bar", "melodies/empty_rows");
+		expectFailure.("a load-time side effect", "melodies/side_effect has load-time side effects");
+		expectFailure.("a forbidden call", "melodies/forbidden_call uses the forbidden token \"Synth(\"");
+		expectFailure.("a file name with a space and capitals", "melodies/Bad Name breaks the naming rules");
+		expectFailure.("the reserved name auto", "melodies/auto breaks the naming rules");
+		if (bad.any { |f| f.beginsWith("melodies/classic") or: { f.beginsWith("palettes/classic") } }) {
+			fail.("static check catches bad files", "a good classic file failed in the temporary library: %".format(bad));
+		};
+		("rm -rf" + shq.(staticTmp)).systemCmd;
+		staticTmp = nil;
+		checkOk.("static check catches bad files");
+
+		// main.scd must start from the D-07 defaults, which parity depends on.
+		~ppSel = nil;
+		~ppLib = nil;
+		~ppRenderErrors = nil;
+		~ppRoleNotes = nil;
+	}.try({ |err|
+		"LIBRARY FAIL: %".format(err.errorString).postln;
+		cleanupTmp.value;
+		1.exit;
+	});
 
 	s.boot;
 	elapsed = 0;
@@ -302,6 +619,172 @@ fork({
 			fail.("record", "golden exists -- delete it only to re-record from the unmodified engine");
 		};
 
+		// ============================================================
+		// Voice tier (LIB-06, T-04-13): every palette voice, on a BARE server
+		// (main.scd is not loaded yet, so nothing but a bad voice can write
+		// to bus 0). A voice must write only to its own out bus (so it always
+		// goes through the limiter), release when its gate closes and free
+		// itself.
+		// ============================================================
+		if (recordMode.not) {
+			var peaks, childCount, voiceContract, voiceContractMany;
+			var palStems, negResults, negNames;
+
+			~ppLibRoot = root +/+ "supercollider/library";
+			peaks = IdentityDictionary.new;
+
+			SynthDef(\ppLibPeak, { |in = 0, id = 0|
+				SendReply.kr(Impulse.kr(20), '/pp/test/libpeak', Peak.ar(In.ar(in, 2)), id);
+			}).add;
+			// msg = [address, nodeID, replyID, peakL, peakR]; the maximum per replyID.
+			OSCdef(\ppLibPeakReply, { |msg|
+				peaks[msg[2]] = max(peaks[msg[2]] ? 0, max(msg[3], msg[4]));
+			}, '/pp/test/libpeak');
+
+			// Direct children of a group, through /g_queryTree (same pattern as
+			// instrChildCount in smoke_test.scd). -1 when the server never replied.
+			childCount = { |g|
+				var replyMsg = nil, oscFunc, waited = 0;
+				oscFunc = OSCFunc({ |msg| if (msg[2] == g.nodeID) { replyMsg = msg } }, '/g_queryTree.reply', s.addr);
+				s.sendMsg('/g_queryTree', g.nodeID, 0);
+				while { replyMsg.isNil and: { waited < 1 } } {
+					0.05.wait;
+					waited = waited + 0.05;
+				};
+				oscFunc.free;
+				if (replyMsg.isNil) { -1 } { replyMsg[3] }
+			};
+
+			// voiceContractMany.(pairs) -> one Array of failure reasons per
+			// [instrument, pitched] pair. The voices of one call run side by
+			// side, each in its own group, on its own bus, with its own peak
+			// probes (one on the private bus, one on bus 0), so the whole batch
+			// takes about 3 s.
+			voiceContractMany = { |pairs|
+				var entries, nextId = 1;
+				entries = pairs.collect { |p|
+					var inst = p[0], pitched = p[1], desc, need, e;
+					e = (inst: inst, pitched: pitched, reasons: List.new);
+					desc = SynthDescLib.global.at(inst);
+					if (desc.isNil) {
+						e[\reasons].add("is not a known SynthDef");
+					} {
+						need = [\out, \amp] ++ if (pitched) { [\freq, \gate] } { [] };
+						need.do { |c|
+							if (desc.controlDict[c].isNil) { e[\reasons].add("has no % control".format(c)) };
+						};
+					};
+					e
+				};
+				entries.do { |e|
+					if (e[\reasons].isEmpty) {
+						e[\grp] = Group.new(s);
+						e[\bus] = Bus.audio(s, 2);
+						e[\idBus] = nextId;
+						e[\id0] = nextId + 1;
+						nextId = nextId + 2;
+						peaks[e[\idBus]] = 0;
+						peaks[e[\id0]] = 0;
+					};
+				};
+				s.sync;
+				entries.do { |e|
+					if (e[\grp].notNil) {
+						e[\probeBus] = Synth.after(e[\grp], \ppLibPeak, [\in, e[\bus].index, \id, e[\idBus]]);
+						e[\probe0] = Synth.after(e[\grp], \ppLibPeak, [\in, 0, \id, e[\id0]]);
+						Synth(e[\inst], [\out, e[\bus].index, \amp, 0.1] ++ if (e[\pitched]) { [\freq, 220] } { [] }, e[\grp]);
+					};
+				};
+				0.6.wait;
+				entries.do { |e| if (e[\grp].notNil) { e[\grp].set(\gate, 0) } };
+				2.0.wait;
+				entries.do { |e|
+					var n;
+					if (e[\grp].notNil) {
+						n = childCount.(e[\grp]);
+						if (peaks[e[\idBus]] <= 0) { e[\reasons].add("no signal on its out bus") };
+						if (peaks[e[\id0]] > 0) { e[\reasons].add("writes to bus 0 (bypasses the limiter)") };
+						if (n < 0) { e[\reasons].add("the server never answered /g_queryTree") };
+						if (n > 0) { e[\reasons].add("% node(s) left after gate 0 (ignores gate or never frees)".format(n)) };
+						e[\probeBus].free;
+						e[\probe0].free;
+						e[\grp].free;
+						e[\bus].free;
+					};
+				};
+				s.sync;
+				entries.collect { |e| e[\reasons].asArray }
+			};
+			voiceContract = { |inst, pitched| voiceContractMany.([[inst, pitched]])[0] };
+
+			// Every palette file (classic first, then sorted), templates included.
+			palStems = listStems.(~ppLibRoot +/+ "palettes");
+			palStems.do { |stemStr|
+				var mod, pairs = List.new, results, bad = List.new;
+				mod = ~ppLibLoad.(\palettes, stemStr.asSymbol);
+				if (mod.isNil) { fail.("voices %".format(stemStr), "the palette did not load") };
+				if (mod[\defs].isFunction) {
+					try { mod[\defs].value } { |err| fail.("voices %".format(stemStr), "defs threw: %".format(err.errorString)) };
+				};
+				s.sync;
+				(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
+					var entry = mod[\roles][role], inst, found;
+					if (entry.notNil) {
+						inst = entry[\instrument];
+						found = pairs.detect { |pr| pr[0] === inst };
+						if (found.isNil) {
+							pairs.add([inst, ~ppPitchedRoles.includes(role)]);
+						} {
+							if (~ppPitchedRoles.includes(role)) { found[1] = true };
+						};
+					};
+				};
+				results = voiceContractMany.(pairs.asArray);
+				results.do { |reasons, i|
+					if (reasons.size > 0) {
+						bad.add("% (role instrument %): %".format(stemStr, pairs[i][0], reasons.join("; ")));
+					};
+				};
+				if (bad.size > 0) { fail.("voices %".format(stemStr), bad.join(" | ")) };
+				checkOk.("voices %".format(stemStr));
+			};
+
+			// Negative controls: three bad voices (test-only; never in library/)
+			// must each fail the contract, or the contract proves nothing.
+			SynthDef(\ppBadBus0, { |out = 0, amp = 0.1, freq = 220, gate = 1|
+				var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.7, 0.1), gate, doneAction: 2);
+				Out.ar(0, (SinOsc.ar(freq) * env * amp) ! 2);  // ignores out: straight to the hardware bus
+			}).add;
+			SynthDef(\ppBadNoDone, { |out = 0, amp = 0.1, freq = 220, gate = 1|
+				var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.7, 0.1), gate);  // no doneAction
+				Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2);
+			}).add;
+			SynthDef(\ppBadNoGate, { |out = 0, amp = 0.1, freq = 220, gate = 1|
+				Out.ar(out, (SinOsc.ar(freq) * amp) ! 2);  // gate declared, never used
+			}).add;
+			s.sync;
+			negNames = [\ppBadBus0, \ppBadNoDone, \ppBadNoGate];
+			negResults = voiceContractMany.(negNames.collect { |n| [n, true] });
+			negResults.do { |reasons, i|
+				if (reasons.size < 1) {
+					fail.("voice contract catches bad voices", "voice contract cannot fail: % passed the contract".format(negNames[i]));
+				};
+			};
+			if (negResults[0].any { |r| r.find("bypasses the limiter").notNil }.not) {
+				fail.("voice contract catches bad voices", "voice contract cannot fail: ppBadBus0 was not caught writing to bus 0 (%)".format(negResults[0]));
+			};
+			[1, 2].do { |i|
+				if (negResults[i].any { |r| r.find("node(s) left").notNil }.not) {
+					fail.("voice contract catches bad voices", "voice contract cannot fail: % was not caught as a voice that never frees (%)".format(negNames[i], negResults[i]));
+				};
+			};
+			// Single-voice form of the same check, as a sanity run on a good voice.
+			if (voiceContract.(\ppKick, false).size > 0) {
+				fail.("voice contract catches bad voices", "the good voice ppKick failed the single-voice contract");
+			};
+			checkOk.("voice contract catches bad voices");
+		};
+
 		(root +/+ "supercollider/main.scd").load;
 
 		elapsed = 0;
@@ -315,6 +798,33 @@ fork({
 		mixRef = ~ppMixBus;
 		instrRef = ~ppInstrGroup;
 		checkOk.("engine ready");
+
+		// RESEARCH VERIFY flag: every layer keeps quant 4 (bar-quantized) after
+		// a Stop and a Start with doReset.
+		if (recordMode.not) {
+			var quantAll = { |when|
+				if (~ppLayers.size != 7) {
+					fail.("quant 4 survives restart", "~ppLayers has % entries %, expected 7".format(~ppLayers.size, when));
+				};
+				~ppLayers.do { |n|
+					if (Pbindef(n).quant != 4) {
+						fail.("quant 4 survives restart", "% has quant % %, expected 4".format(n, Pbindef(n).quant, when));
+					};
+				};
+			};
+			// A Stop while a bar-quantized start is still pending can raise inside
+			// SuperCollider, so wait until every layer is really playing first.
+			var playing = {
+				waitFor.({ ~ppLayers.every { |n| var pl = Pbindef(n).player; pl.notNil and: { pl.nextBeat.notNil } } }, 8)
+			};
+			quantAll.("at start");
+			if (playing.value.not) { fail.("quant 4 survives restart", "the layers never started playing") };
+			~ppStop.value;
+			~ppStart.value;
+			quantAll.("after Stop and Start");
+			if (playing.value.not) { fail.("quant 4 survives restart", "the layers never restarted after Start") };
+			checkOk.("quant 4 survives restart");
+		};
 
 		if (recordMode) {
 			var f;
