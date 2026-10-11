@@ -545,19 +545,23 @@ Tests need an overridable library root (`~ppLibRoot`, default `~ppRoot +/+ "libr
 | A6 | The user accepts a loud, explicit `PP_LIBRARY_ALLOW_EDIT` override for tuning `classic_lead` after commit | Pitfall 9 / Open Question 1 | Medium: user may prefer a different mechanism; needs confirmation |
 | A7 | A silent 7th layer adds negligible CPU next to Zwift | Summary | Low; the real-ride check is Phase 9 (ENG-03) |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Tuning `classic_lead` after it is committed vs the never-overwrite guard**
    - What we know: D-06/Discretion say the level is tuned at the end-of-phase listening check; the guard compares against HEAD and fails on a modified committed file; `human_verify_mode` is end-of-phase (config).
    - What's unclear: whether the user wants the override env var, or prefers that any post-commit change becomes `classic_lead2.scd`.
    - Recommendation: implement the explicit per-file override (printed loudly), keep `classic_lead` the only file expected to use it, and let the planner confirm with the user at the checkpoint.
+   - RESOLVED (orchestrator, from the user's stated preferences: keep it simple, every variation is a new file): no `PP_LIBRARY_ALLOW_EDIT` override is built. The guard stays strict. If the listening check asks for a different `classic_lead` level or voice, it lands as a new library file (for example `classic_lead_soft.scd`) and the committed file stays untouched and selectable. Assumption A6 is closed the same way. Plans 04-01 (guard) and 04-05 (listening check) carry this.
 2. **One command: new `scripts/check.sh` or extend `scripts/smoke_test.sh`?**
    - What we know: either satisfies success criterion 4; STATE.md calls `smoke_test.sh` the regression harness.
    - Recommendation: new `scripts/check.sh` (guard, then library check, then smoke), leaving `smoke_test.sh` byte-identical in behaviour.
+   - RESOLVED: new `scripts/check.sh` with a `--library-only` fast loop. To keep the number of scripts minimal, there is no separate `scripts/library_check.sh` and no `scripts/pp_select.sh`; the selection one-liner is documented in `supercollider/library/README.md`. `scripts/smoke_test.sh` is unchanged (Plans 04-01, 04-04).
 3. **Should `auto` for palettes/progressions already accept being "set" while behaving as `classic`?**
    - Recommendation: yes, store `\auto` in `~ppSel` and resolve in one function so Phases 6-7 change one place.
+   - RESOLVED: yes. `\auto` is stored in `~ppSel` and resolved to `classic` by `~ppResolveStem` (Plans 04-01, 04-02).
 4. **Does a melody file that omits `arp` fall back to `classic`'s arp?**
    - Recommendation: yes (per ARCHITECTURE); for `lead`, `classic` has none, so the fallback is a rest bar.
+   - RESOLVED: yes. The order is module generator, then the classic generator, then a single rest bar (Plans 04-01, 04-02).
 
 ## Sources
 
