@@ -2123,6 +2123,69 @@ fork({
 		};
 	}.value;
 
+	// --- stop silences every layer (ENG-05, D-04): with classic_lead really
+	// flowing, Stop empties the instrument group and no layer renders another
+	// bar until Start. Non-vacuous: the lead has to be audibly playing first. ---
+	{
+		var left = nil, elapsed = 0, snapBefore, snapAfter;
+
+		sendSel.('/pp/melody', 'classic_lead');
+		if (waitSel.(\melodies, \classic_lead, 3).not) {
+			fail.("stop silences every layer", "classic_lead was never selected (selection %)".format(~ppSel[\melodies]));
+		};
+		if (layersStarted.(8).not) {
+			fail.("stop silences every layer", "precondition: the layers never started playing");
+		};
+		if (waitLeadFlowing.(16, ~clock.beatDur * 12).not) {
+			fail.("stop silences every layer", "precondition: the classic_lead lead never started rendering notes");
+		};
+		if (instrChildCount.() == 0) {
+			fail.("stop silences every layer", "precondition: no instrument nodes are sounding before Stop");
+		};
+
+		sendPlay.(0);
+		if (waitForPlaying.(false, 3).not) {
+			fail.("stop silences every layer", "/pp/play 0 did not stop the engine within 3s");
+		};
+		while ({ left != 0 and: { elapsed < 2.5 } }) {
+			left = instrChildCount.();
+			if (left != 0) {
+				0.1.wait;
+				elapsed = elapsed + 0.1;
+			};
+		};
+		if (left != 0) {
+			fail.("stop silences every layer", "instrument group still has % children 2.5 s after stop".format(left));
+		};
+
+		snapBefore = roleSnapshot.value;
+		(~clock.beatDur * 8).wait;
+		snapAfter = roleSnapshot.value;
+		snapBefore.keysValuesDo { |r, n|
+			if (snapAfter[r] != n) {
+				fail.("stop silences every layer", "role % rendered another bar after Stop (% -> %)".format(r, n, snapAfter[r]));
+			};
+		};
+		~ppLayers.do { |n|
+			if (Pbindef(n).isPlaying) {
+				fail.("stop silences every layer", "Pbindef(%) is still playing after Stop".format(n));
+			};
+		};
+		if (instrChildCount.() != 0) {
+			fail.("stop silences every layer", "instrument nodes appeared after Stop");
+		};
+		checkOk.("stop silences every layer");
+
+		sendPlay.(1);
+		if (waitForPlaying.(true, 3).not) {
+			fail.("stop silences every layer", "/pp/play 1 did not restart the engine within 3s");
+		};
+		sendSel.('/pp/melody', 'classic');
+		if (waitSel.(\melodies, \classic, 3).not) {
+			fail.("stop silences every layer", "classic was never re-selected (selection %)".format(~ppSel[\melodies]));
+		};
+	}.value;
+
 	"SMOKE PASS".postln;
 	s.quit(onComplete: { 0.exit });
 	}.try({ |err|
