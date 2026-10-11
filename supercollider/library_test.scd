@@ -594,7 +594,6 @@ fork({
 		~ppLib = nil;
 		~ppRenderErrors = nil;
 		~ppRoleNotes = nil;
-		~ppLibRoot = nil;
 	}.try({ |err|
 		"LIBRARY FAIL: %".format(err.errorString).postln;
 		cleanupTmp.value;
@@ -620,6 +619,172 @@ fork({
 			fail.("record", "golden exists -- delete it only to re-record from the unmodified engine");
 		};
 
+		// ============================================================
+		// Voice tier (LIB-06, T-04-13): every palette voice, on a BARE server
+		// (main.scd is not loaded yet, so nothing but a bad voice can write
+		// to bus 0). A voice must write only to its own out bus (so it always
+		// goes through the limiter), release when its gate closes and free
+		// itself.
+		// ============================================================
+		if (recordMode.not) {
+			var peaks, childCount, voiceContract, voiceContractMany;
+			var palStems, negResults, negNames;
+
+			~ppLibRoot = root +/+ "supercollider/library";
+			peaks = IdentityDictionary.new;
+
+			SynthDef(\ppLibPeak, { |in = 0, id = 0|
+				SendReply.kr(Impulse.kr(20), '/pp/test/libpeak', Peak.ar(In.ar(in, 2)), id);
+			}).add;
+			// msg = [address, nodeID, replyID, peakL, peakR]; the maximum per replyID.
+			OSCdef(\ppLibPeakReply, { |msg|
+				peaks[msg[2]] = max(peaks[msg[2]] ? 0, max(msg[3], msg[4]));
+			}, '/pp/test/libpeak');
+
+			// Direct children of a group, through /g_queryTree (same pattern as
+			// instrChildCount in smoke_test.scd). -1 when the server never replied.
+			childCount = { |g|
+				var replyMsg = nil, oscFunc, waited = 0;
+				oscFunc = OSCFunc({ |msg| if (msg[2] == g.nodeID) { replyMsg = msg } }, '/g_queryTree.reply', s.addr);
+				s.sendMsg('/g_queryTree', g.nodeID, 0);
+				while { replyMsg.isNil and: { waited < 1 } } {
+					0.05.wait;
+					waited = waited + 0.05;
+				};
+				oscFunc.free;
+				if (replyMsg.isNil) { -1 } { replyMsg[3] }
+			};
+
+			// voiceContractMany.(pairs) -> one Array of failure reasons per
+			// [instrument, pitched] pair. The voices of one call run side by
+			// side, each in its own group, on its own bus, with its own peak
+			// probes (one on the private bus, one on bus 0), so the whole batch
+			// takes about 3 s.
+			voiceContractMany = { |pairs|
+				var entries, nextId = 1;
+				entries = pairs.collect { |p|
+					var inst = p[0], pitched = p[1], desc, need, e;
+					e = (inst: inst, pitched: pitched, reasons: List.new);
+					desc = SynthDescLib.global.at(inst);
+					if (desc.isNil) {
+						e[\reasons].add("is not a known SynthDef");
+					} {
+						need = [\out, \amp] ++ if (pitched) { [\freq, \gate] } { [] };
+						need.do { |c|
+							if (desc.controlDict[c].isNil) { e[\reasons].add("has no % control".format(c)) };
+						};
+					};
+					e
+				};
+				entries.do { |e|
+					if (e[\reasons].isEmpty) {
+						e[\grp] = Group.new(s);
+						e[\bus] = Bus.audio(s, 2);
+						e[\idBus] = nextId;
+						e[\id0] = nextId + 1;
+						nextId = nextId + 2;
+						peaks[e[\idBus]] = 0;
+						peaks[e[\id0]] = 0;
+					};
+				};
+				s.sync;
+				entries.do { |e|
+					if (e[\grp].notNil) {
+						e[\probeBus] = Synth.after(e[\grp], \ppLibPeak, [\in, e[\bus].index, \id, e[\idBus]]);
+						e[\probe0] = Synth.after(e[\grp], \ppLibPeak, [\in, 0, \id, e[\id0]]);
+						Synth(e[\inst], [\out, e[\bus].index, \amp, 0.1] ++ if (e[\pitched]) { [\freq, 220] } { [] }, e[\grp]);
+					};
+				};
+				0.6.wait;
+				entries.do { |e| if (e[\grp].notNil) { e[\grp].set(\gate, 0) } };
+				2.0.wait;
+				entries.do { |e|
+					var n;
+					if (e[\grp].notNil) {
+						n = childCount.(e[\grp]);
+						if (peaks[e[\idBus]] <= 0) { e[\reasons].add("no signal on its out bus") };
+						if (peaks[e[\id0]] > 0) { e[\reasons].add("writes to bus 0 (bypasses the limiter)") };
+						if (n < 0) { e[\reasons].add("the server never answered /g_queryTree") };
+						if (n > 0) { e[\reasons].add("% node(s) left after gate 0 (ignores gate or never frees)".format(n)) };
+						e[\probeBus].free;
+						e[\probe0].free;
+						e[\grp].free;
+						e[\bus].free;
+					};
+				};
+				s.sync;
+				entries.collect { |e| e[\reasons].asArray }
+			};
+			voiceContract = { |inst, pitched| voiceContractMany.([[inst, pitched]])[0] };
+
+			// Every palette file (classic first, then sorted), templates included.
+			palStems = listStems.(~ppLibRoot +/+ "palettes");
+			palStems.do { |stemStr|
+				var mod, pairs = List.new, results, bad = List.new;
+				mod = ~ppLibLoad.(\palettes, stemStr.asSymbol);
+				if (mod.isNil) { fail.("voices %".format(stemStr), "the palette did not load") };
+				if (mod[\defs].isFunction) {
+					try { mod[\defs].value } { |err| fail.("voices %".format(stemStr), "defs threw: %".format(err.errorString)) };
+				};
+				s.sync;
+				(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
+					var entry = mod[\roles][role], inst, found;
+					if (entry.notNil) {
+						inst = entry[\instrument];
+						found = pairs.detect { |pr| pr[0] === inst };
+						if (found.isNil) {
+							pairs.add([inst, ~ppPitchedRoles.includes(role)]);
+						} {
+							if (~ppPitchedRoles.includes(role)) { found[1] = true };
+						};
+					};
+				};
+				results = voiceContractMany.(pairs.asArray);
+				results.do { |reasons, i|
+					if (reasons.size > 0) {
+						bad.add("% (role instrument %): %".format(stemStr, pairs[i][0], reasons.join("; ")));
+					};
+				};
+				if (bad.size > 0) { fail.("voices %".format(stemStr), bad.join(" | ")) };
+				checkOk.("voices %".format(stemStr));
+			};
+
+			// Negative controls: three bad voices (test-only; never in library/)
+			// must each fail the contract, or the contract proves nothing.
+			SynthDef(\ppBadBus0, { |out = 0, amp = 0.1, freq = 220, gate = 1|
+				var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.7, 0.1), gate, doneAction: 2);
+				Out.ar(0, (SinOsc.ar(freq) * env * amp) ! 2);  // ignores out: straight to the hardware bus
+			}).add;
+			SynthDef(\ppBadNoDone, { |out = 0, amp = 0.1, freq = 220, gate = 1|
+				var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.7, 0.1), gate);  // no doneAction
+				Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2);
+			}).add;
+			SynthDef(\ppBadNoGate, { |out = 0, amp = 0.1, freq = 220, gate = 1|
+				Out.ar(out, (SinOsc.ar(freq) * amp) ! 2);  // gate declared, never used
+			}).add;
+			s.sync;
+			negNames = [\ppBadBus0, \ppBadNoDone, \ppBadNoGate];
+			negResults = voiceContractMany.(negNames.collect { |n| [n, true] });
+			negResults.do { |reasons, i|
+				if (reasons.size < 1) {
+					fail.("voice contract catches bad voices", "voice contract cannot fail: % passed the contract".format(negNames[i]));
+				};
+			};
+			if (negResults[0].any { |r| r.find("bypasses the limiter").notNil }.not) {
+				fail.("voice contract catches bad voices", "voice contract cannot fail: ppBadBus0 was not caught writing to bus 0 (%)".format(negResults[0]));
+			};
+			[1, 2].do { |i|
+				if (negResults[i].any { |r| r.find("node(s) left").notNil }.not) {
+					fail.("voice contract catches bad voices", "voice contract cannot fail: % was not caught as a voice that never frees (%)".format(negNames[i], negResults[i]));
+				};
+			};
+			// Single-voice form of the same check, as a sanity run on a good voice.
+			if (voiceContract.(\ppKick, false).size > 0) {
+				fail.("voice contract catches bad voices", "the good voice ppKick failed the single-voice contract");
+			};
+			checkOk.("voice contract catches bad voices");
+		};
+
 		(root +/+ "supercollider/main.scd").load;
 
 		elapsed = 0;
@@ -633,6 +798,33 @@ fork({
 		mixRef = ~ppMixBus;
 		instrRef = ~ppInstrGroup;
 		checkOk.("engine ready");
+
+		// RESEARCH VERIFY flag: every layer keeps quant 4 (bar-quantized) after
+		// a Stop and a Start with doReset.
+		if (recordMode.not) {
+			var quantAll = { |when|
+				if (~ppLayers.size != 7) {
+					fail.("quant 4 survives restart", "~ppLayers has % entries %, expected 7".format(~ppLayers.size, when));
+				};
+				~ppLayers.do { |n|
+					if (Pbindef(n).quant != 4) {
+						fail.("quant 4 survives restart", "% has quant % %, expected 4".format(n, Pbindef(n).quant, when));
+					};
+				};
+			};
+			// A Stop while a bar-quantized start is still pending can raise inside
+			// SuperCollider, so wait until every layer is really playing first.
+			var playing = {
+				waitFor.({ ~ppLayers.every { |n| var pl = Pbindef(n).player; pl.notNil and: { pl.nextBeat.notNil } } }, 8)
+			};
+			quantAll.("at start");
+			if (playing.value.not) { fail.("quant 4 survives restart", "the layers never started playing") };
+			~ppStop.value;
+			~ppStart.value;
+			quantAll.("after Stop and Start");
+			if (playing.value.not) { fail.("quant 4 survives restart", "the layers never restarted after Start") };
+			checkOk.("quant 4 survives restart");
+		};
 
 		if (recordMode) {
 			var f;
