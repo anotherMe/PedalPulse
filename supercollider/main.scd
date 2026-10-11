@@ -141,7 +141,7 @@ s.waitForBoot({
 	// per-note voices are added to the server here, before the s.sync below
 	// and before any layer is built.
 	~ppLib = (progressions: (), melodies: (), palettes: ());
-	[\palettes, \melodies].do { |cat|
+	~ppLibCategories.do { |cat|
 		if (~ppLibEnsure.(cat, \classic).not) {
 			Error("PedalPulse ERROR: library file % is required and failed to load -- the engine cannot start".format(~ppLibPath.(cat, \classic))).throw;
 		};
@@ -243,62 +243,9 @@ s.waitForBoot({
 		};
 	}).play(~clock, quant: 1);
 
-	Pbindef(\ppKick,
-		\instrument, \ppKick,
-		\dur, 1,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	Pbindef(\ppHat,
-		\instrument, \ppHat,
-		\dur, 1,
-		\timingOffset, 0.5,  // offbeat 8th: the "and" of each beat
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	Pbindef(\ppBass,
-		\instrument, \ppBass,
-		\dur, 0.5,  // 8th-note grid
-		// A minor root (MIDI 33 = A1) on the offbeat 8th of beats 1-3;
-		// MIDI 36 (C2) on the offbeat 8th of beat 4 -- the note change at
-		// the bar end. Downbeat 8ths rest.
-		\midinote, Pseq([\rest, 33, \rest, 33, \rest, 33, \rest, 36], inf),
-		\legato, 0.8,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	// Pbindef sets no \amp key -> the pattern sends the default event
-	// amplitude (0.1) to any synth with an amp control, overriding that
-	// SynthDef's own \amp default; the kick/hat/bass layers above rely on
-	// that default. These three new layers set \amp explicitly (matching
-	// each SynthDef's own \amp default above) so the mix balance is the one
-	// the voice was designed at, not the pattern-wide 0.1 fallback.
-	Pbindef(\ppClap,
-		\instrument, \ppClap,
-		\dur, 2,  // beats 2 and 4
-		\timingOffset, 1,
-		\amp, 0.25,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	// The arp comes from the library (melodies/classic.scd) through the
-	// per-bar renderer; the other layers move over in the next task.
+	// Every layer comes from the library (or, for the drums, the core grid)
+	// through the per-bar renderer. All layers play on ~clock (see ~ppStart).
 	~ppBuildLayers.();
-
-	Pbindef(\ppPad,
-		\instrument, \ppPad,
-		\dur, 4,  // one chord per bar
-		// Am, then Am with a passing tone -- fixed two-bar loop
-		\midinote, Pseq([[45, 48, 52], [45, 48, 53]], inf),
-		\legato, 0.9,
-		\amp, 0.06,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
 
 	// --- Transport: ~ppStart / ~ppStop (GUI-02) ---
 	// Both the OSC handler and D-15 autostart below go through this same
