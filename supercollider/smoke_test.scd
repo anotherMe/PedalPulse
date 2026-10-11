@@ -21,6 +21,7 @@ var sendEpic, traceCtl, readCtl, waitEpicSettled, measureBand;
 var ctlSamples, bandSum = 0, bandCount = 0, ctlOSCdef, bandOSCdef;
 var stepBound;
 var measurePeak, sendVolume;
+var sendSel, engineCounts, compareCounts, reloadMain, waitLeadFlowing, layersStarted, roleSnapshot, waitSel;
 
 // Watchdog first, in case anything below hangs. Raised from 240 to 300s:
 // Phase 3's EPIC checks wait out the 1.5s EPIC lag several times (glide
@@ -298,6 +299,108 @@ bandOSCdef = OSCdef(\ppBandProbeReply, { |msg|
 	bandSum = bandSum + max(msg[3], msg[4]);
 	bandCount = bandCount + 1;
 }, '/pp/test/band');
+
+// --- ENG-05 helpers (Phase 4, Plan 06) ---
+
+// Direct sclang send for the three library selection addresses
+// (/pp/melody, /pp/progression, /pp/palette); the value is a file stem.
+sendSel = { |address, value| NetAddr("127.0.0.1", NetAddr.langPort).sendMsg(address, value) };
+
+// Polls ~ppSel[cat] until it equals stem (a Symbol), up to timeoutSec.
+waitSel = { |cat, stem, timeoutSec|
+	var elapsed = 0;
+	while ({ (~ppSel[cat] != stem) and: { elapsed < timeoutSec } }) {
+		0.1.wait;
+		elapsed = elapsed + 0.1;
+	};
+	~ppSel[cat] == stem;
+};
+
+// Everything that must not multiply across a re-evaluation. Waits 1.0 s first
+// so the server's status counts (groups, SynthDefs) have refreshed. Never
+// reads s.numSynths: it moves with the notes. The clock queue is read only on
+// the live ~clock (RESEARCH "Counting for ENG-05").
+engineCounts = {
+	var q;
+	1.0.wait;
+	q = ~clock.queue;
+	(
+		pdefs: Pdef.all.keys.asArray.collect(_.asSymbol).sort,
+		clocks: TempoClock.all.size,
+		players: q.select(_.isKindOf(EventStreamPlayer)).size,
+		routines: q.select(_.isKindOf(Routine)).size,
+		groups: s.numGroups,
+		synthDefs: s.numSynthDefs,
+		oscdefs: OSCdef.all.size
+	)
+};
+
+// Fails naming every key whose value differs between two engineCounts Events.
+compareCounts = { |name, before, after|
+	var diffs = List.new;
+	before.keys.asArray.sort { |a, b| a.asString <= b.asString }.do { |k|
+		if (before[k] != after[k]) {
+			diffs.add("% before % after %".format(k, before[k], after[k]));
+		};
+	};
+	if (diffs.notEmpty) {
+		fail.(name, "counts changed across re-evaluation: %".format(diffs.join("; ")));
+	};
+};
+
+// True once every layer's player has a nextBeat (really playing, not still
+// waiting for its bar-quantized start). A Stop or restart while a start is
+// pending can raise inside SuperCollider ('sched' not understood), so the
+// ENG-05 sequences wait for this between re-evaluations.
+layersStarted = { |timeoutSec|
+	var elapsed = 0, ok = false;
+	while ({ ok.not and: { elapsed < timeoutSec } }) {
+		ok = ~ppLayers.every { |n| var pl = Pbindef(n).player; pl.notNil and: { pl.nextBeat.notNil } };
+		if (ok.not) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+	};
+	ok;
+};
+
+// Re-evaluates the whole of main.scd and waits for ~ppReady (up to 30 s), then
+// for the autostarted layers to be really playing.
+reloadMain = {
+	var elapsed = 0;
+	~ppReady = false;
+	(root +/+ "supercollider/main.scd").load;
+	while ({ ~ppReady.not and: { elapsed < 30 } }) {
+		0.5.wait;
+		elapsed = elapsed + 0.5;
+	};
+	if (~ppReady.not) {
+		fail.("reloadMain", "engine never became ready again after a re-evaluation of main.scd");
+	};
+	if (~ppPlaying == true) {
+		if (layersStarted.(8).not) {
+			fail.("reloadMain", "the layers never started playing after a re-evaluation of main.scd");
+		};
+	};
+};
+
+// Returns true once ~ppRoleNotes[\lead] has risen by at least minNotes (a nil
+// count reads as 0), within timeoutSec seconds.
+waitLeadFlowing = { |minNotes, timeoutSec|
+	var start = ~ppRoleNotes[\lead] ? 0, elapsed = 0;
+	while ({ ((~ppRoleNotes[\lead] ? 0) - start < minNotes) and: { elapsed < timeoutSec } }) {
+		0.1.wait;
+		elapsed = elapsed + 0.1;
+	};
+	((~ppRoleNotes[\lead] ? 0) - start) >= minNotes;
+};
+
+// ~ppRoleNotes for the seven roles as an Event (nil counts read as 0).
+roleSnapshot = {
+	var e = ();
+	[\kick, \hat, \clap, \bass, \arp, \pad, \lead].do { |r| e[r] = ~ppRoleNotes[r] ? 0 };
+	e;
+};
 
 fork({
 	var elapsed, portOk, tempoOk, venvOk, sendResult, applyCountBefore, stopSentAt;
@@ -1908,6 +2011,179 @@ fork({
 		};
 
 		checkOk.("re-evaluation stays stopped");
+	}.value;
+
+	// --- ENG-05 (Phase 4, Plan 06): re-evaluating never stacks, and the
+	// selection survives. classic_lead is selected first so the lead is
+	// really playing and none of this can pass vacuously. ---
+	{
+		var before, after, logBad, snapBefore, snapAfter;
+
+		if (~ppPlaying != true) {
+			fail.("eng-05 no stacking", "precondition: engine is not playing");
+		};
+		if (layersStarted.(8).not) {
+			fail.("eng-05 no stacking", "precondition: the layers never started playing");
+		};
+		sendSel.('/pp/melody', 'classic_lead');
+		if (waitSel.(\melodies, \classic_lead, 3).not) {
+			fail.("eng-05 no stacking", "classic_lead was never selected (selection %)".format(~ppSel[\melodies]));
+		};
+		if (waitLeadFlowing.(16, ~clock.beatDur * 12).not) {
+			fail.("eng-05 no stacking", "precondition: the classic_lead lead never started rendering notes");
+		};
+
+		before = engineCounts.value;
+		~ppLogLines = List.new;
+		3.do {
+			reloadMain.value;
+			0.5.wait;
+		};
+		(~clock.beatDur * 4).wait;
+		after = engineCounts.value;
+
+		compareCounts.("eng-05 no stacking", before, after);
+		if (~ppLayers.size != 7) {
+			fail.("eng-05 no stacking", "~ppLayers has % names, expected 7".format(~ppLayers.size));
+		};
+		if (after[\players] != ~ppLayers.size) {
+			fail.("eng-05 no stacking", "% EventStreamPlayers on ~clock, expected %".format(after[\players], ~ppLayers.size));
+		};
+		if (after[\routines] != 1) {
+			fail.("eng-05 no stacking", "% Routines on ~clock, expected 1 (the ramp stepper)".format(after[\routines]));
+		};
+		if (after[\pdefs].asSet != ~ppLayers.asSet) {
+			fail.("eng-05 no stacking", "Pdef names % are not the seven layers %".format(after[\pdefs], ~ppLayers));
+		};
+		if (~ppPlaying != true) {
+			fail.("eng-05 no stacking", "~ppPlaying is % after three re-evaluations".format(~ppPlaying));
+		};
+		if (~ppSel[\melodies] != \classic_lead) {
+			fail.("eng-05 no stacking", "melody selection is % after three re-evaluations, expected classic_lead".format(~ppSel[\melodies]));
+		};
+		if (~ppLib[\melodies][\classic_lead].isNil) {
+			fail.("eng-05 no stacking", "classic_lead is not in the registry after three re-evaluations");
+		};
+		if (waitLeadFlowing.(16, ~clock.beatDur * 12).not) {
+			fail.("eng-05 no stacking", "the lead stopped playing after three re-evaluations");
+		};
+		logBad = ~ppLogLines.select { |l| l.asString.find("ERROR").notNil or: { l.asString.find("playing classic for this bar").notNil } };
+		if (logBad.notEmpty) {
+			fail.("eng-05 no stacking", "log line during the re-evaluations: %".format(logBad.first));
+		};
+
+		"PedalPulse smoke: eng-05 counts players % routines % clocks % groups % synthDefs % oscdefs % pdefs %".format(
+			after[\players], after[\routines], after[\clocks], after[\groups], after[\synthDefs], after[\oscdefs], after[\pdefs]
+		).postln;
+		checkOk.("eng-05 no stacking");
+
+		// --- single modules, each twice, while playing ---
+		before = engineCounts.value;
+		snapBefore = roleSnapshot.value;
+		["validate.scd", "loader.scd", "render.scd"].do { |name|
+			2.do {
+				var result = (root +/+ "supercollider/core" +/+ name).load;
+				if (result.isNil) {
+					fail.("eng-05 module re-evaluation", "core/% failed to load".format(name));
+				};
+				0.3.wait;
+			};
+		};
+		(~clock.beatDur * 8).wait;
+		after = engineCounts.value;
+		snapAfter = roleSnapshot.value;
+
+		compareCounts.("eng-05 module re-evaluation", before, after);
+		~ppLayers.do { |n|
+			if (Pbindef(n).isPlaying.not) {
+				fail.("eng-05 module re-evaluation", "Pbindef(%) stopped playing after the module re-evaluations".format(n));
+			};
+		};
+		[\kick, \hat, \clap, \bass, \arp, \pad, \lead].do { |r|
+			if (snapAfter[r] <= snapBefore[r]) {
+				fail.("eng-05 module re-evaluation", "role % rendered no notes during the module re-evaluations (% before, % after)".format(r, snapBefore[r], snapAfter[r]));
+			};
+		};
+		[\progressions, \melodies, \palettes].do { |cat|
+			if (~ppLib[cat][\classic].isNil) {
+				fail.("eng-05 module re-evaluation", "~ppLib lost classic in % (re-evaluating loader.scd must not drop the registry)".format(cat));
+			};
+		};
+		if (~ppLib[\melodies][\classic_lead].isNil) {
+			fail.("eng-05 module re-evaluation", "~ppLib lost classic_lead (re-evaluating loader.scd must not drop the registry)");
+		};
+		if (~ppSel[\melodies] != \classic_lead) {
+			fail.("eng-05 module re-evaluation", "melody selection is % after the module re-evaluations, expected classic_lead".format(~ppSel[\melodies]));
+		};
+		checkOk.("eng-05 module re-evaluation");
+
+		sendSel.('/pp/melody', 'classic');
+		if (waitSel.(\melodies, \classic, 3).not) {
+			fail.("eng-05 module re-evaluation", "classic was never re-selected (selection %)".format(~ppSel[\melodies]));
+		};
+	}.value;
+
+	// --- stop silences every layer (ENG-05, D-04): with classic_lead really
+	// flowing, Stop empties the instrument group and no layer renders another
+	// bar until Start. Non-vacuous: the lead has to be audibly playing first. ---
+	{
+		var left = nil, elapsed = 0, snapBefore, snapAfter;
+
+		sendSel.('/pp/melody', 'classic_lead');
+		if (waitSel.(\melodies, \classic_lead, 3).not) {
+			fail.("stop silences every layer", "classic_lead was never selected (selection %)".format(~ppSel[\melodies]));
+		};
+		if (layersStarted.(8).not) {
+			fail.("stop silences every layer", "precondition: the layers never started playing");
+		};
+		if (waitLeadFlowing.(16, ~clock.beatDur * 12).not) {
+			fail.("stop silences every layer", "precondition: the classic_lead lead never started rendering notes");
+		};
+		if (instrChildCount.() == 0) {
+			fail.("stop silences every layer", "precondition: no instrument nodes are sounding before Stop");
+		};
+
+		sendPlay.(0);
+		if (waitForPlaying.(false, 3).not) {
+			fail.("stop silences every layer", "/pp/play 0 did not stop the engine within 3s");
+		};
+		while ({ left != 0 and: { elapsed < 2.5 } }) {
+			left = instrChildCount.();
+			if (left != 0) {
+				0.1.wait;
+				elapsed = elapsed + 0.1;
+			};
+		};
+		if (left != 0) {
+			fail.("stop silences every layer", "instrument group still has % children 2.5 s after stop".format(left));
+		};
+
+		snapBefore = roleSnapshot.value;
+		(~clock.beatDur * 8).wait;
+		snapAfter = roleSnapshot.value;
+		snapBefore.keysValuesDo { |r, n|
+			if (snapAfter[r] != n) {
+				fail.("stop silences every layer", "role % rendered another bar after Stop (% -> %)".format(r, n, snapAfter[r]));
+			};
+		};
+		~ppLayers.do { |n|
+			if (Pbindef(n).isPlaying) {
+				fail.("stop silences every layer", "Pbindef(%) is still playing after Stop".format(n));
+			};
+		};
+		if (instrChildCount.() != 0) {
+			fail.("stop silences every layer", "instrument nodes appeared after Stop");
+		};
+		checkOk.("stop silences every layer");
+
+		sendPlay.(1);
+		if (waitForPlaying.(true, 3).not) {
+			fail.("stop silences every layer", "/pp/play 1 did not restart the engine within 3s");
+		};
+		sendSel.('/pp/melody', 'classic');
+		if (waitSel.(\melodies, \classic, 3).not) {
+			fail.("stop silences every layer", "classic was never re-selected (selection %)".format(~ppSel[\melodies]));
+		};
 	}.value;
 
 	"SMOKE PASS".postln;
