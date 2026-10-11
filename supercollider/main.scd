@@ -7,6 +7,39 @@
 // Never assign Server.default here -- the smoke test redirects `s` to its
 // own isolated server on port 57140 before loading this file.
 
+// --- Where everything lives (Phase 4) ---
+// ~ppRoot is the supercollider/ folder this file is in. It is captured at the
+// top level on purpose: inside s.waitForBoot the file is no longer "currently
+// executing", so thisProcess.nowExecutingPath would be nil there. A
+// re-evaluation from the IDE keeps the previous value when the path is nil.
+~ppRoot = if (thisProcess.nowExecutingPath.notNil) {
+	File.realpath(thisProcess.nowExecutingPath).dirname
+} {
+	~ppRoot
+};
+if (~ppRoot.isNil) {
+	Error("PedalPulse: save main.scd and evaluate the whole file -- cannot find the supercollider folder").throw;
+};
+// Reset on every evaluation; tests may point it elsewhere after boot.
+~ppLibRoot = ~ppRoot +/+ "library";
+
+// Core modules are plain files in core/. They only define ~ variables (no
+// server access), so they load at top level, before s.waitForBoot.
+~ppLoadCore = { |name|
+	var path = ~ppRoot +/+ "core" +/+ name;
+	var result = path.load;
+	if (result.isNil) {
+		Error("PedalPulse ERROR: core module % failed to load".format(path)).throw;
+	};
+	result
+};
+~ppLoadCore.("loader.scd");
+~ppLoadCore.("render.scd");
+
+// Startup defaults to classic in every category (D-07). Like ~bpm, the
+// selection survives a re-evaluation.
+~ppSel = ~ppSel ? (progressions: \classic, melodies: \classic, palettes: \classic);
+
 // D-17: debug pre-limiter gain. Raise this (e.g. to 8.0), re-evaluate the
 // whole file, and watch the meter hold at the limiter ceiling instead of
 // clipping. Reset to 1.0 afterwards.
@@ -69,52 +102,6 @@ s.waitForBoot({
 	if (~ppVolumeBus.notNil) { ~ppVolumeBus.free };
 	~ppRampPendingBpm = nil; ~ppRampRateBpm = 0;  // a pending target on a stopped clock can never wedge later messages
 
-	SynthDef(\ppKick, { |out = 0, amp = 0.5|
-		var sig, env;
-		env = EnvGen.kr(Env.perc(0.001, 0.35), doneAction: 2);
-		sig = SinOsc.ar(XLine.kr(150, 50, 0.3)) * env * amp;
-		Out.ar(out, sig ! 2);
-	}).add;
-
-	SynthDef(\ppHat, { |out = 0, amp = 0.15|
-		var sig, env;
-		env = EnvGen.kr(Env.perc(0.001, 0.12), doneAction: 2);
-		sig = HPF.ar(WhiteNoise.ar(), 7000) * env * amp;
-		Out.ar(out, sig ! 2);
-	}).add;
-
-	SynthDef(\ppBass, { |out = 0, amp = 0.25, freq = 55, gate = 1|
-		var sig, env;
-		env = EnvGen.kr(Env.adsr(0.005, 0.1, 0.6, 0.05), gate, doneAction: 2);
-		sig = Saw.ar([freq, freq * 1.01]);  // detuned pair -> stereo
-		sig = RLPF.ar(sig, 700, 0.6);
-		Out.ar(out, sig * env * amp);
-	}).add;
-
-	SynthDef(\ppClap, { |out = 0, amp = 0.25|
-		var sig, env;
-		env = EnvGen.kr(Env.perc(0.005, 0.18), doneAction: 2);
-		sig = BPF.ar(WhiteNoise.ar(), 1500, 0.6);
-		Out.ar(out, (sig * env * amp) ! 2);
-	}).add;
-
-	SynthDef(\ppArp, { |out = 0, amp = 0.1, freq = 440, gate = 1|
-		var sig, env;
-		env = EnvGen.kr(Env.adsr(0.002, 0.05, 0.4, 0.08), gate, doneAction: 2);
-		sig = Pulse.ar([freq, freq * 1.003], 0.3);  // two slightly detuned pulses -> stereo
-		sig = LPF.ar(sig, freq * 4);
-		Out.ar(out, sig * env * amp);
-	}).add;
-
-	SynthDef(\ppPad, { |out = 0, amp = 0.06, freq = 220, gate = 1|
-		var sig, env;
-		env = EnvGen.kr(Env.adsr(0.4, 0.3, 0.7, 1.2), gate, doneAction: 2);  // slow attack/release = pad character; gate lets Stop release it
-		sig = Saw.ar([freq, freq * 1.005, freq * 0.997]);  // 3-voice detune for width
-		sig = LPF.ar(sig, 1200);
-		sig = Splay.ar(sig);
-		Out.ar(out, sig * env * amp);
-	}).add;
-
 	SynthDef(\ppMaster, { |in, out = 0, preGain = 1, volumeBus = 0|
 		// GUI-03: volume is applied before the limiter, never after (Pitfall
 		// 1) -- it is a gain stage inside the master, exactly like preGain.
@@ -149,9 +136,20 @@ s.waitForBoot({
 		Out.ar(out, sig);
 	}).add;
 
+	// Rebuild the library registry on every evaluation (the teardown above has
+	// already stopped every layer), then load classic from disk. The palette's
+	// per-note voices are added to the server here, before the s.sync below
+	// and before any layer is built.
+	~ppLib = (progressions: (), melodies: (), palettes: ());
+	~ppLibCategories.do { |cat|
+		if (~ppLibEnsure.(cat, \classic).not) {
+			Error("PedalPulse ERROR: library file % is required and failed to load -- the engine cannot start".format(~ppLibPath.(cat, \classic))).throw;
+		};
+	};
+
 	s.sync;
 
-	~ppMixBus = Bus.audio(s, 2);
+	~ppMixBus =Bus.audio(s, 2);
 	~ppFxBus = Bus.audio(s, 2);
 	~ppEpicBus = Bus.control(s, 1);
 	~ppEpicSmoothBus = Bus.control(s, 1);
@@ -245,69 +243,9 @@ s.waitForBoot({
 		};
 	}).play(~clock, quant: 1);
 
-	Pbindef(\ppKick,
-		\instrument, \ppKick,
-		\dur, 1,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	Pbindef(\ppHat,
-		\instrument, \ppHat,
-		\dur, 1,
-		\timingOffset, 0.5,  // offbeat 8th: the "and" of each beat
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	Pbindef(\ppBass,
-		\instrument, \ppBass,
-		\dur, 0.5,  // 8th-note grid
-		// A minor root (MIDI 33 = A1) on the offbeat 8th of beats 1-3;
-		// MIDI 36 (C2) on the offbeat 8th of beat 4 -- the note change at
-		// the bar end. Downbeat 8ths rest.
-		\midinote, Pseq([\rest, 33, \rest, 33, \rest, 33, \rest, 36], inf),
-		\legato, 0.8,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	// Pbindef sets no \amp key -> the pattern sends the default event
-	// amplitude (0.1) to any synth with an amp control, overriding that
-	// SynthDef's own \amp default; the kick/hat/bass layers above rely on
-	// that default. These three new layers set \amp explicitly (matching
-	// each SynthDef's own \amp default above) so the mix balance is the one
-	// the voice was designed at, not the pattern-wide 0.1 fallback.
-	Pbindef(\ppClap,
-		\instrument, \ppClap,
-		\dur, 2,  // beats 2 and 4
-		\timingOffset, 1,
-		\amp, 0.25,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	Pbindef(\ppArp,
-		\instrument, \ppArp,
-		\dur, 0.25,  // 16th notes
-		// A3, C4, E4, C4 -- an octave+ above Phase 1's A-minor bass root
-		\midinote, Pseq([57, 60, 64, 60], inf),
-		\legato, 0.6,
-		\amp, 0.1,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
-
-	Pbindef(\ppPad,
-		\instrument, \ppPad,
-		\dur, 4,  // one chord per bar
-		// Am, then Am with a passing tone -- fixed two-bar loop
-		\midinote, Pseq([[45, 48, 52], [45, 48, 53]], inf),
-		\legato, 0.9,
-		\amp, 0.06,
-		\out, ~ppMixBus,
-		\group, ~ppInstrGroup,
-	);
+	// Every layer comes from the library (or, for the drums, the core grid)
+	// through the per-bar renderer. All layers play on ~clock (see ~ppStart).
+	~ppBuildLayers.();
 
 	// --- Transport: ~ppStart / ~ppStop (GUI-02) ---
 	// Both the OSC handler and D-15 autostart below go through this same
