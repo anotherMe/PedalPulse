@@ -68,7 +68,7 @@
 // logging one "PedalPulse ERROR: library file <path> <reason>" line.
 // String:load compile errors do not name the file, so the loader always does.
 ~ppLibLoad = { |cat, stem|
-	var path, mod, failed = false;
+	var path, mod, failed = false, reasons;
 	path = ~ppLibPath.(cat, stem);
 	~ppLog.("PedalPulse: loading %".format(path));
 	if (File.exists(path).not) {
@@ -95,6 +95,19 @@
 		~ppLog.("PedalPulse ERROR: library file % did not evaluate to an Event (got %)".format(path, mod.class));
 		failed = true;
 	};
+	// The same pure functions the library check uses (core/validate.scd). A
+	// validator that itself throws on a hostile value counts as a refusal.
+	if (failed.not) {
+		reasons = try {
+			~ppValidate.(cat, mod)
+		} { |err|
+			["validation threw: %".format(err.errorString)]
+		};
+		if (reasons.size > 0) {
+			~ppLog.("PedalPulse ERROR: library file % is invalid: %".format(path, reasons.join("; ")));
+			failed = true;
+		};
+	};
 	if (failed) {
 		nil
 	} {
@@ -106,24 +119,35 @@
 };
 
 // Load from disk and register. Runs only inside a Routine (palettes call s.sync).
-// Loads on every call, so selecting a name again reloads it. On any failure the
-// registry is left untouched and false is returned.
+// Loads on every call, so selecting a name again reloads it. On any failure
+// (load, validation, defs, voices) the registry is left untouched, so the last
+// good copy keeps playing, and false is returned after an ERROR line naming the
+// file. Success is the single registry put at the end.
 ~ppLibEnsure = { |cat, stem|
-	var mod, prev, ok = true;
+	var mod, prev, ok = true, reasons;
 	mod = ~ppLibLoad.(cat, stem);
 	if (mod.isNil) {
 		ok = false;
 	} {
 		if (cat == \palettes) {
-			if (mod[\defs].isFunction.not) {
-				~ppLog.("PedalPulse ERROR: library file % has no defs function".format(mod[\path]));
-				ok = false;
-			} {
+			// defs is optional: a palette may only re-map voices that already exist.
+			if (mod[\defs].isFunction) {
 				try {
 					mod[\defs].value;
 					s.sync;
 				} { |err|
 					~ppLog.("PedalPulse ERROR: library file % defs failed: %".format(mod[\path], err.errorString));
+					ok = false;
+				};
+			};
+			if (ok) {
+				reasons = try {
+					~ppValidateVoices.(mod)
+				} { |err|
+					["voice validation threw: %".format(err.errorString)]
+				};
+				if (reasons.size > 0) {
+					~ppLog.("PedalPulse ERROR: library file % has invalid voices: %".format(mod[\path], reasons.join("; ")));
 					ok = false;
 				};
 			};
@@ -133,6 +157,10 @@
 		prev = ~ppLib[cat][stem.asSymbol];
 		mod[\rev] = if (prev.notNil) { (prev[\rev] ? 0) + 1 } { 1 };
 		~ppLib[cat].put(stem.asSymbol, mod);
+		// A (re)loaded file starts with a clean render error count.
+		if (~ppRenderErrors.notNil and: { ~ppRenderErrors[cat].notNil }) {
+			~ppRenderErrors[cat][stem.asSymbol] = 0;
+		};
 	};
 	ok
 };

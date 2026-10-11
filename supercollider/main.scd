@@ -33,6 +33,7 @@ if (~ppRoot.isNil) {
 	};
 	result
 };
+~ppLoadCore.("validate.scd");
 ~ppLoadCore.("loader.scd");
 ~ppLoadCore.("render.scd");
 

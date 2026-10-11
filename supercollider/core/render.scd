@@ -74,34 +74,118 @@
 	(bar: bar, songBar: songBar, phraseBar: songBar % 8, role: role)
 };
 
+// --- Seeding (RESEARCH Pitfall 4) ---
+// Every init and generator call is seeded from (song seed, song bar, role) with
+// plain integer arithmetic, so restarting the song replays the same values bar
+// for bar. Never Array.hash (it differs between processes); a Symbol's hash is
+// stable. The shipped generators use no randomness; the formula is fixed here
+// before Phase 8 starts logging seeds.
+~ppSongSeed = ~ppSongSeed ? 0;
+~ppSeedFor = { |songSeed, bar, role|
+	((songSeed * 1000003) + (bar * 7919) + role.hash.abs) & 0x7FFFFFFF
+};
+
+// Per (category, stem) count of bars that fell back to classic since the file
+// was last (re)loaded: category -> (stem -> count). The loader resets an entry
+// on every successful load, so a reloaded file starts clean.
+~ppRenderErrors = ~ppRenderErrors ? ();
+
+// Run one generator for one bar under try: seed, call, check the rows. Returns
+// (rows:, reason:) where reason is nil when the rows are valid.
+~ppRunGenerator = { |gen, plan, state, role, songBar|
+	var rows = nil, reason = nil;
+	try {
+		thisThread.randSeed = ~ppSeedFor.(~ppSongSeed, songBar, role);
+		rows = gen.value(plan, state);
+	} { |err|
+		reason = "generator threw: %".format(err.errorString);
+	};
+	if (reason.isNil) { reason = ~ppRowsValid.(rows) };
+	(rows: rows, reason: reason)
+};
+
+// Count and log one failed bar of a library file. At the third failure, if the
+// file is still the selection, the category goes back to classic (never for
+// classic itself).
+~ppRenderFail = { |cat, mod, role, bar, reason|
+	var stem, path, n;
+	stem = mod[\name];
+	path = mod[\path];
+	~ppRenderErrors[cat] = ~ppRenderErrors[cat] ? ();
+	n = (~ppRenderErrors[cat][stem] ? 0) + 1;
+	~ppRenderErrors[cat][stem] = n;
+	~ppLog.("PedalPulse ERROR: library file % % bar %: % -- playing classic for this bar".format(path, role, bar, reason));
+	if ((n >= 3) and: { stem != \classic } and: { ~ppSel.notNil } and: { ~ppSel[cat] == stem }) {
+		~ppSel[cat] = \classic;
+		~ppLog.("PedalPulse ERROR: library file % failed 3 times -- % back to classic".format(path, cat));
+	};
+	nil
+};
+
 // Render one bar for a role: rows [instrument, note, dur, amp, legato] for a
 // pitched role, [instrument, dur, amp, legato] for a drum role.
+//
+// Containment (LIB-04): init and the generator run under try and their rows are
+// checked with ~ppRowsValid. On a throw or invalid rows this bar is rendered
+// from the classic module instead (itself try-wrapped and checked; the last
+// resort is one silent row), the failure is logged with the file's path and
+// counted, and the third failure sends the category back to classic. A module
+// that simply has no generator for the role uses classic's silently (that is
+// not a failure).
 ~ppRenderBar = { |role, songBar, bar, layerState|
-	var cat, mod, key, gen, rows, inst, plan, out;
+	var cat, mod, key, gen, res, inst, plan, out, drum, failure, classicMod, fb;
 	inst = ~ppInstrumentFor.(role);
-	if (~ppDrumGrid[role].notNil) {
-		out = ~ppDrumGrid[role][\rows].collect { |r| [inst, r[1], r[2], r[3]] };
+	drum = ~ppDrumGrid[role];
+	if (drum.notNil) {
+		out = drum[\rows].collect { |r| [inst, r[1], r[2], r[3]] };
 		~ppRoleNotes[role] = (~ppRoleNotes[role] ? 0) + out.size;
 		out
 	} {
 		cat = ~ppRoleCategory[role];
 		mod = ~ppModuleFor.(cat);
+		classicMod = ~ppLib[cat][\classic];
 		key = if (mod.notNil) { [mod[\name], mod[\rev]] } { nil };
 		plan = ~ppPlanFor.(bar, songBar, role);
+		failure = nil;
+		res = nil;
 		// A different module (or a reload of the same one) starts with a fresh state.
 		if (key != layerState[\moduleKey]) {
 			layerState[\state] = ();
+			layerState[\initError] = nil;
 			if (mod.notNil and: { mod[\init].isFunction }) {
-				mod[\init].value(layerState[\state]);
+				try {
+					thisThread.randSeed = ~ppSeedFor.(~ppSongSeed, songBar, role);
+					mod[\init].value(layerState[\state]);
+				} { |err|
+					layerState[\initError] = "init threw: %".format(err.errorString);
+				};
 			};
 			layerState[\moduleKey] = key;
 		};
-		gen = if (mod.notNil) { mod[role] } { nil };
-		if (gen.isNil) {
-			gen = ~ppLib[cat][\classic] !? { |c| c[role] };
+		if (layerState[\initError].notNil) {
+			failure = layerState[\initError];
+		} {
+			gen = if (mod.notNil) { mod[role] } { nil };
+			if (gen.isFunction) {
+				res = ~ppRunGenerator.(gen, plan, layerState[\state], role, songBar);
+				if (res[\reason].notNil) { failure = res[\reason] };
+			};
 		};
-		rows = if (gen.isFunction) { gen.value(plan, layerState[\state]) } { [[\rest, 4, 0, 1]] };
-		out = rows.collect { |r| [inst] ++ r };
+		if (failure.notNil) {
+			~ppRenderFail.(cat, mod, role, bar, failure);
+			res = nil;
+		};
+		if (res.isNil) {
+			// Either this bar failed, or the module has no generator for the role:
+			// play classic's (rests when classic has none either).
+			gen = if (classicMod.notNil) { classicMod[role] } { nil };
+			if (gen.isFunction) {
+				fb = ~ppRunGenerator.(gen, plan, (), role, songBar);
+				if (fb[\reason].isNil) { res = fb };
+			};
+		};
+		out = if (res.notNil) { res[\rows] } { [[\rest, 4, 0, 1]] };
+		out = out.collect { |r| [inst] ++ r };
 		~ppRoleNotes[role] = (~ppRoleNotes[role] ? 0) + out.count { |r| r[1] != \rest };
 		out
 	}
