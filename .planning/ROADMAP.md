@@ -42,6 +42,7 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
 ## Phase Details
 
 ### Phase 4: Modular Engine & Variation Library
+
 **Goal:** As a rider, I want the engine split into a core plus a library of named variation files, with no change to what I hear, so that new variations can be added as files and switched to without ever stopping the music.
 **Mode:** mvp
 **Depends on:** Phase 3 (shipped v1.0 engine)
@@ -52,17 +53,30 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
   3. A library file added or changed while the music plays can be selected by name over OSC (`/pp/progression`, `/pp/palette`, `/pp/melody`, taking `auto` or a file name), or reloaded, without restarting the engine and with no gap in playback. A broken or invalid file is refused with a post-window error that names it, and the music keeps playing on `classic`
   4. One command runs the existing smoke suite plus a new library check. The check validates every library file (it loads, has the right shape, and its voices go through the limiter and obey Stop and gate) and reports pass or fail
   5. Re-evaluating `main.scd` or a module several times leaves exactly one copy of every layer playing, with no extra nodes or routines, and Stop silences every layer and source
+
 **Plans:** 6 plans
 
 Plans:
+**Wave 1**
 - [ ] 04-01-PLAN.md — Record the shipped groove (golden) from the unmodified engine with a proven parity check; `scripts/check.sh` with the never-overwrite guard
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 04-02-PLAN.md — Tracer: play every layer from `library/*/classic.scd` through the new loader and renderer (0 parity mismatches against the golden)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 04-03-PLAN.md — The 7th layer (lead), `classic_lead.scd`, and select-by-name over `/pp/progression`, `/pp/palette`, `/pp/melody` with bar-line switching
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 04-04-PLAN.md — Broken files never stop the music: validation, refusal naming the file, last good copy, per-bar classic fallback, seeding
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 04-05-PLAN.md — One command checks every library file: static tier, voice contract with negative controls, file-count cross-check, templates, README
+
+**Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 04-06-PLAN.md — ENG-05 gate: no stacking on re-evaluation, Stop silences the lead too, full check and the listening check
 
 ### Phase 5: Library Selectors in the GUI
+
 **Goal:** As a rider, I want Palette, Progression and Melody selectors in the PedalPulse window, so that I can pick Auto or any named variation using the same names I use when giving feedback.
 **Mode:** mvp
 **Depends on:** Phase 4 (library folders and selection addresses)
@@ -72,10 +86,12 @@ Plans:
   2. Picking an item sends its name to the engine over OSC, only when the choice actually changes, and the engine's post window confirms the selection it received. The app stays send-only and keeps working when the engine is not running
   3. A name the engine doesn't know (for example, a file deleted after the app started) is ignored by the engine with a warning while the music keeps playing, and the GUI never crashes
   4. After using any selector, the Up/Down arrow keys and the other BPM shortcuts still change BPM exactly as before. The selectors never take keyboard focus
+
 **Plans:** TBD
 **UI hint**: yes
 
 ### Phase 6: Shared Harmony & Progressions
+
 **Goal:** As a rider, I want the music to move through chord progressions that bass, arp and pad follow together, so that it stops sounding like the same few notes for an hour.
 **Mode:** mvp
 **Depends on:** Phase 5 (Progression selector, used to audition progressions)
@@ -86,9 +102,11 @@ Plans:
   3. The Progression selector lists at least 6 named progressions plus `classic`, and each one sounds distinct. On Auto, the engine chooses progressions on its own
   4. Picking a named progression switches to it at the end of the current progression cycle, never mid-cycle, and it stays until another choice is made
   5. The standing exit gate holds: Stop silences every layer, re-evaluating stacks nothing, and the smoke suite plus the library check pass with every progression file
+
 **Plans:** TBD
 
 ### Phase 7: Sound Palettes
+
 **Goal:** As a rider, I want the engine to change its whole sound set every few minutes, or keep one I like, so that a long ride never sounds the same and I can name what I want more or less of.
 **Mode:** mvp
 **Depends on:** Phase 6
@@ -99,9 +117,11 @@ Plans:
   3. Picking a named palette locks it. It stays for the rest of the ride until Auto is picked again
   4. Switching palettes causes no noticeable volume jump, and VO2 at volume 100 on the loudest palette still never clips
   5. The standing exit gate holds for every palette (Stop silences its voices, nothing bypasses the limiter). CPU with the heaviest palette at VO2 is measured on the riding Mac and stays within the agreed budget for running next to Zwift
+
 **Plans:** TBD
 
 ### Phase 8: Evolving Melodies
+
 **Goal:** As a rider, I want a lead melody that develops over the ride, repeating, varying and moving on, so that the music has hooks instead of a fixed list of notes.
 **Mode:** mvp
 **Depends on:** Phase 7 (palettes supply the lead sound; harmony from Phase 6 supplies chord and scale)
@@ -112,9 +132,11 @@ Plans:
   3. The Melody selector lists at least 3 named melody styles plus `classic`. Auto or a picked style audibly changes how the lead and arp behave
   4. The seed of each melody is posted to the post window. Replaying that seed reproduces the same melody, so a melody heard on a ride can be saved as a new library entry
   5. The standing exit gate holds with the lead playing: Stop silences the lead too, re-evaluating stacks nothing, and the smoke suite plus the library check pass with every melody style
+
 **Plans:** TBD
 
 ### Phase 9: Song Structure, EPIC Density & Ride Soak
+
 **Goal:** As a rider, I want the music to build, break down and drop on its own, thin out or fill up with my effort zone, and run my whole ride without a glitch, so that a 60+ minute workout feels like a set that follows my intervals.
 **Mode:** mvp
 **Depends on:** Phase 8 (structure and density read harmony, palettes and melodies)
@@ -125,6 +147,7 @@ Plans:
   3. Clicking an EPIC zone mid-section takes effect at the next bar line, even if that cuts a breakdown or build short
   4. At Threshold and VO2, breakdowns are short and kick and bass keep playing. Long, full breakdowns happen only at low EPIC
   5. A real 60+ minute ride next to Zwift with the full v2.0 engine has no audio dropouts, and synth node count and CPU stay flat. An accelerated soak in the test suite checks the same thing in minutes
+
 **Plans:** TBD
 
 ## Progress

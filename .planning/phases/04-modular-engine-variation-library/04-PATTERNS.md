@@ -6,6 +6,11 @@
 
 Codebase is tiny: only `supercollider/main.scd`, `supercollider/smoke_test.scd`, `scripts/smoke_test.sh`, `python_app/osc_client.py` exist as SC/shell analogs. All paths below are git-tracked (verified with `git ls-files`). Line numbers refer to the current v1.0 files.
 
+> **Superseded names (the PLAN files are authoritative).** This map was written from RESEARCH.md before planning. The plans renamed or dropped three files named below:
+> - `supercollider/golden/v1_events.scd` → **`supercollider/golden/shipped_groove.scd`** (same role: recorded from the unmodified engine).
+> - `scripts/library_check.sh` → **not created**. Its job (git guard, library check, file-count cross-check) lives in **`scripts/check.sh`** (`--library-only` for the fast mode). Apply the `smoke_test.sh` analog notes below to `check.sh`.
+> - `scripts/pp_select.sh` → **not created**. The `/pp/melody classic_lead` one-liner is documented in `supercollider/library/README.md` via `python_app/osc_client.py`. Do not create this script.
+
 ## File Classification
 
 | New/Modified File | Role | Data Flow | Closest Analog | Match |
