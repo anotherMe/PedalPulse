@@ -44,9 +44,15 @@ var log, mixRef, instrRef;
 var recordBars, same, selfCheck, rowSortKey;
 var expectCounts, expectAmps;
 var sendSel, waitFor, venvPython, newLogs, barOf;
+var tmpRoot, realLibRoot, cleanupTmp, wr, shq, expectClassicBars, leadDiffs, freshText;
 
 // Watchdog first, in case anything below hangs.
-SystemClock.sched(200, { "LIBRARY FAIL: watchdog timeout".postln; 1.exit; nil });
+SystemClock.sched(200, {
+	"LIBRARY FAIL: watchdog timeout".postln;
+	cleanupTmp.value;
+	1.exit;
+	nil
+});
 
 // sclang reports a relative nowExecutingPath when given a relative path, so
 // resolve to an absolute path first (before any wait).
@@ -196,6 +202,59 @@ newLogs = { |countBefore|
 };
 
 barOf = { |relBeat| (relBeat / 4 + 1e-6).floor.asInteger };
+
+// --- Fallback tier helpers (LIB-04, LIB-05) ---
+// The temporary library root is created by the tier itself. cleanupTmp puts
+// ~ppLibRoot back and removes only the two temporary folders; it is also run on
+// a failure and by the watchdog, so a failed run does not leave them behind.
+shq = { |str| "'" ++ str ++ "'" };
+cleanupTmp = {
+	if (realLibRoot.notNil) { ~ppLibRoot = realLibRoot };
+	if (tmpRoot.notNil and: { tmpRoot.find("pedalpulse-libtest-").notNil }) {
+		("rm -rf" + shq.(tmpRoot) + shq.(tmpRoot ++ "_outside")).systemCmd;
+	};
+};
+
+// wr.(relativePath, text): write a fixture inside the temporary library root.
+wr = { |rel, text|
+	File.use(tmpRoot +/+ rel, "w", { |f| f.write(text) });
+};
+
+// A melody whose arp is classic's and whose lead is the arp's notes + offset at
+// amp 0.02.
+freshText = { |desc, offset|
+	"(\ndesc: \"%\",\narp: { |plan, state| var notes = [57, 60, 64, 60]; Array.fill(16, { |i| [notes.wrapAt(i), 0.25, 0.1, 0.6] }) },\nlead: { |plan, state| var notes = [57, 60, 64, 60]; Array.fill(16, { |i| [notes.wrapAt(i) + %, 0.25, 0.02, 0.6] }) }\n)\n".format(desc, offset)
+};
+
+// expectClassicBars.(name, rows, nBars): every one of nBars bars holds the
+// classic event count for each of the six sounding layers (kick 4, hat 4, clap
+// 2, bass 4, arp 16, pad 1). The music never stopped.
+expectClassicBars = { |name, rws, nBars|
+	var perBar = (ppKick: 4, ppHat: 4, ppClap: 2, ppBass: 4, ppArp: 16, ppPad: 1);
+	var counts = ();
+	rws.do { |r|
+		var k = "%_%".format(r[0], barOf.(r[1])).asSymbol;
+		counts[k] = (counts[k] ? 0) + 1;
+	};
+	perBar.keysValuesDo { |layer, n|
+		nBars.do { |b|
+			var got = counts["%_%".format(layer, b).asSymbol] ? 0;
+			if (got != n) {
+				fail.(name, "% bar % holds % events, expected % (the music stopped or changed)".format(layer, b, got, n));
+			};
+		};
+	};
+};
+
+// leadDiffs.(rows) -> Array of [bar, lead note - arp note at the same beat].
+leadDiffs = { |rws|
+	var arp = rws.select { |r| r[0] == \ppArp };
+	rws.select { |r| r[0] == \ppLead }.collect { |r|
+		var a = arp.detect { |x| (x[1] - r[1]).abs < 1e-6 };
+		if (a.isNil) { fail.("lead check", "no arp row at beat %".format(r[1])) };
+		[barOf.(r[1]), r[3] - a[3]]
+	}
+};
 
 // What 16 bars of the shipped groove must contain (D-02: effective amps are
 // captured as they are, not "fixed").
@@ -584,11 +643,419 @@ fork({
 				};
 			};
 
+			// ============================================================
+			// Fallback tier (LIB-04, LIB-05): broken, hostile and changing
+			// files in a TEMPORARY library root. Nothing is ever written
+			// inside supercollider/library/.
+			// ============================================================
+			realLibRoot = ~ppLibRoot;
+			tmpRoot = Platform.defaultTempDir +/+ ("pedalpulse-libtest-" ++ Date.getDate.stamp);
+			["progressions", "melodies", "palettes"].do { |c| File.mkdir(tmpRoot +/+ c) };
+			File.mkdir(tmpRoot ++ "_outside");
+			[
+				"progressions/classic.scd", "melodies/classic.scd",
+				"melodies/classic_lead.scd", "palettes/classic.scd"
+			].do { |rel|
+				var rc = ("cp" + shq.(realLibRoot +/+ rel) + shq.(tmpRoot +/+ rel)).systemCmd;
+				if (rc != 0) { fail.("fallback setup", "cp of % failed with %".format(rel, rc)) };
+			};
+			~ppLibRoot = tmpRoot;
+
+			// Broken and hostile fixtures.
+			wr.("melodies/broken_syntax.scd", "(\ndesc: \"broken syntax\",\narp: { |plan, state| [[60, 4, 0.1, 0.5]] }\n");
+			wr.("melodies/throws_on_load.scd", "Error(\"boom at load\").throw;\n(desc: \"throws on load\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+			wr.("melodies/empty.scd", "");
+			wr.("melodies/comment_only.scd", "// nothing but a comment\n");
+			wr.("melodies/not_event.scd", "42\n");
+			wr.("melodies/no_desc.scd", "(arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+			wr.("melodies/wrong_shape.scd", "(desc: \"wrong shape\", arp: 5)\n");
+			File.use(tmpRoot ++ "_outside/escape_target.scd", "w", { |f|
+				f.write("(desc: \"outside the library\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+			});
+			("ln -s" + shq.(tmpRoot ++ "_outside/escape_target.scd") + shq.(tmpRoot +/+ "melodies/escape.scd")).systemCmd;
+			wr.("palettes/bad_defs.scd", "(desc: \"bad defs\", defs: { Error(\"boom in defs\").throw }, roles: (arp: (instrument: 'ppArp')))\n");
+			wr.("palettes/ghost_voice.scd", "(desc: \"ghost voice\", roles: (arp: (instrument: 'pp_ghost_arp')))\n");
+			wr.("progressions/not_function.scd", "(desc: \"not a function\", bass: \"not a function\")\n");
+
+			// 1. broken files refused (LIB-04, edge LIB-02 empty file).
+			{
+				var name = "broken files refused";
+				var snap, rc, fixtures;
+				snap = ~ppSel.copy;
+				fixtures = [
+					['/pp/melody', \broken_syntax, "melodies/broken_syntax.scd"],
+					['/pp/melody', \throws_on_load, "melodies/throws_on_load.scd"],
+					['/pp/melody', \empty, "melodies/empty.scd"],
+					['/pp/melody', \comment_only, "melodies/comment_only.scd"],
+					['/pp/melody', \not_event, "melodies/not_event.scd"],
+					['/pp/melody', \no_desc, "melodies/no_desc.scd"],
+					['/pp/melody', \wrong_shape, "melodies/wrong_shape.scd"],
+					['/pp/melody', \escape, "melodies/escape.scd"],
+					['/pp/palette', \bad_defs, "palettes/bad_defs.scd"],
+					['/pp/palette', \ghost_voice, "palettes/ghost_voice.scd"],
+					['/pp/progression', \not_function, "progressions/not_function.scd"],
+					['/pp/melody', \nope2, "melodies/nope2.scd"]
+				];
+				rc = recordBars.(40, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 8) } { 0.02.wait };
+					fixtures.do { |f|
+						var before = ~ppLogCount;
+						var path = tmpRoot +/+ f[2];
+						sendSel.(f[0], f[1]);
+						if (waitFor.({
+							newLogs.(before).any { |l| l.find("ERROR").notNil and: { l.find(path).notNil } }
+						}, 2).not) {
+							fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before)));
+						};
+						0.1.wait;
+						~ppLibCategories.do { |c|
+							if (~ppSel[c] != snap[c]) {
+								fail.(name, "% selection changed from % to % after %".format(c, snap[c], ~ppSel[c], f[1]));
+							};
+						};
+					};
+				});
+				if (rc[\rows].any { |r| r[0] == \ppLead }) {
+					fail.(name, "the lead played while every category stayed on classic");
+				};
+				expectClassicBars.(name, rc[\rows], 40);
+				checkOk.(name);
+			}.value;
+
+			// 2. added file selectable (LIB-05): a valid file written while the engine runs.
+			{
+				var name = "added file selectable";
+				var rc, lead, arp, first;
+				wr.("melodies/fresh.scd", freshText.("fresh", 24));
+				rc = recordBars.(12, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 8) } { 0.02.wait };  // bar 2
+					sendSel.('/pp/melody', 'fresh');
+					if (waitFor.({ ~ppSel[\melodies] == \fresh }, 2).not) {
+						fail.(name, "~ppSel[\\melodies] never became fresh");
+					};
+				});
+				lead = rc[\rows].select { |r| r[0] == \ppLead };
+				arp = rc[\rows].select { |r| r[0] == \ppArp };
+				if (lead.isEmpty) { fail.(name, "no lead rows after selecting fresh") };
+				first = lead[0][1];
+				if (((first / 4).round - (first / 4)).abs > 1e-6) {
+					fail.(name, "first lead row at beat % is not on a bar line".format(first));
+				};
+				leadDiffs.(rc[\rows]).do { |d|
+					if (d[1] != 24) { fail.(name, "lead note is arp + % in bar %, expected + 24".format(d[1], d[0])) };
+				};
+				if (arp.size != 192) { fail.(name, "% arp rows, expected 192".format(arp.size)) };
+				checkOk.(name);
+			}.value;
+
+			// 3. changed file reloads on whole bars (edge LIB-05 concurrency).
+			{
+				var name = "changed file reloads on whole bars";
+				var rc, arp, diffs, byBar, keys, switchBar;
+				rc = recordBars.(16, 16, { |recClock, startBeat|
+					var rev0;
+					while { recClock.beats < (startBeat + 8) } { 0.02.wait };  // bar 2
+					rev0 = ~ppLib[\melodies][\fresh][\rev];
+					wr.("melodies/fresh.scd", freshText.("fresh", 19));
+					sendSel.('/pp/melody', 'fresh');
+					if (waitFor.({ ~ppLib[\melodies][\fresh][\rev] > rev0 }, 2).not) {
+						fail.(name, "the rev of fresh never rose after the file changed");
+					};
+				});
+				arp = rc[\rows].select { |r| r[0] == \ppArp };
+				diffs = leadDiffs.(rc[\rows]);
+				byBar = Dictionary.new;
+				diffs.do { |d| byBar[d[0]] = (byBar[d[0]] ? List.new).add(d[1]) };
+				keys = byBar.keys.asArray.sort;
+				if (keys.size != 16) { fail.(name, "lead plays in % of 16 bars: %".format(keys.size, keys)) };
+				switchBar = nil;
+				keys.do { |b|
+					var vals = byBar[b];
+					if (vals.size != 16) { fail.(name, "bar % holds % lead rows, expected 16".format(b, vals.size)) };
+					if (vals.any { |v| v != vals[0] }) {
+						fail.(name, "bar % mixes rows of the old and the new copy: %".format(b, vals));
+					};
+					if (switchBar.isNil) {
+						if (vals[0] == 19) {
+							switchBar = b;
+						} {
+							if (vals[0] != 24) { fail.(name, "bar % has lead offset %".format(b, vals[0])) };
+						};
+					} {
+						if (vals[0] != 19) { fail.(name, "bar % went back to offset % after the switch".format(b, vals[0])) };
+					};
+				};
+				if (switchBar.isNil) { fail.(name, "the lead never switched to the changed file") };
+				if (switchBar < 2) { fail.(name, "the lead switched in bar % before the file changed".format(switchBar)) };
+				if (arp.size != 256) { fail.(name, "% arp rows, expected 256".format(arp.size)) };
+				arp.do { |r, i|
+					if ((r[1] - (i * 0.25)).abs > 1e-6) {
+						fail.(name, "arp row % at beat % is not at %".format(i, r[1], i * 0.25));
+					};
+				};
+				checkOk.(name);
+			}.value;
+
+			// 4. broken edit keeps last good (CONTEXT discretion: last good copy).
+			{
+				var name = "broken edit keeps last good";
+				var before, path, rev0, rc, diffs;
+				before = ~ppLogCount;
+				path = tmpRoot +/+ "melodies/fresh.scd";
+				rev0 = ~ppLib[\melodies][\fresh][\rev];
+				wr.("melodies/fresh.scd", "(\ndesc: \"fresh, now broken\",\narp: { |plan, state| [[60, 4, 0.1, 0.5]] }\n");
+				sendSel.('/pp/melody', 'fresh');
+				if (waitFor.({
+					newLogs.(before).any { |l| l.find("ERROR").notNil and: { l.find(path).notNil } }
+				}, 2).not) {
+					fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before)));
+				};
+				0.2.wait;
+				if (~ppSel[\melodies] != \fresh) {
+					fail.(name, "~ppSel[\\melodies] is % after the broken edit, expected fresh".format(~ppSel[\melodies]));
+				};
+				if (~ppLib[\melodies][\fresh][\rev] != rev0) {
+					fail.(name, "the registry copy of fresh changed (rev % -> %)".format(rev0, ~ppLib[\melodies][\fresh][\rev]));
+				};
+				rc = recordBars.(4, 32);
+				diffs = leadDiffs.(rc[\rows]);
+				if (diffs.size != 64) { fail.(name, "% lead rows, expected 64 from the last good copy".format(diffs.size)) };
+				diffs.do { |d|
+					if (d[1] != 19) { fail.(name, "lead is arp + % in bar %, expected the last good copy (+ 19)".format(d[1], d[0])) };
+				};
+				checkOk.(name);
+			}.value;
+
+			// 5. broken never wins a race (edge LIB-04 concurrency).
+			{
+				var name = "broken never wins a race";
+				var before, path, rc;
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ ~ppSel[\melodies] == \classic }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never returned to classic");
+				};
+				("cp" + shq.(tmpRoot +/+ "melodies/classic_lead.scd") + shq.(tmpRoot +/+ "melodies/fresh2.scd")).systemCmd;
+				before = ~ppLogCount;
+				path = tmpRoot +/+ "melodies/broken_syntax.scd";
+				sendSel.('/pp/melody', 'fresh2');
+				sendSel.('/pp/melody', 'broken_syntax');
+				1.wait;
+				if (~ppSel[\melodies] == \broken_syntax) {
+					fail.(name, "the broken file became the melody selection");
+				};
+				if (([\fresh2, \classic].includes(~ppSel[\melodies])).not) {
+					fail.(name, "~ppSel[\\melodies] is %, expected fresh2 or classic".format(~ppSel[\melodies]));
+				};
+				if (newLogs.(before).any { |l| l.find("ERROR").notNil and: { l.find(path).notNil } }.not) {
+					fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before)));
+				};
+				rc = recordBars.(4, 32);
+				expectClassicBars.(name, rc[\rows], 4);
+				checkOk.(name);
+			}.value;
+
+			// ============================================================
+			// Containment tier (LIB-04, LIB-06): a file that loads fine but
+			// misbehaves while playing. Same temporary library root.
+			// ============================================================
+
+			// 6. rows validation (edge LIB-06 adjacency): 4.0 within 1e-6 passes.
+			{
+				var name = "rows validation";
+				var good, bad, r;
+				good = [
+					["16 rows of a sixteenth", Array.fill(16, { [60, 0.25, 0.1, 0.5] })],
+					["4.0000005 beats", [[60, 2, 0.1, 0.5], [60, 2.0000005, 0.1, 0.5]]],
+					["a rest and a chord", [[\rest, 2, 0, 1], [[45, 48, 52], 2, 0.06, 0.9]]]
+				];
+				good.do { |g|
+					r = ~ppRowsValid.(g[1]);
+					if (r.notNil) { fail.(name, "% should pass but got: %".format(g[0], r)) };
+				};
+				bad = [
+					["3.5 beats", [[60, 3.5, 0.1, 0.5]]],
+					["4.5 beats", [[60, 4.5, 0.1, 0.5]]],
+					["no rows", []],
+					["a dur of 0", [[60, 0, 0.1, 0.5], [60, 4, 0.1, 0.5]]],
+					["an amp of 1.5", [[60, 4, 1.5, 0.5]]],
+					["a note \"x\"", [["x", 4, 0.1, 0.5]]],
+					["a row of 3 items", [[60, 4, 0.1]]],
+					["not an Array", 5],
+					["a nan dur", [[60, 0 / 0, 0.1, 0.5]]]
+				];
+				bad.do { |b|
+					r = ~ppRowsValid.(b[1]);
+					if (r.isKindOf(String).not) { fail.(name, "% should fail but passed".format(b[0])) };
+				};
+				if (~ppRowsValid.([[60, 3.5, 0.1, 0.5]]).find("3.5").isNil) {
+					fail.(name, "the 3.5 beat reason does not say 3.5");
+				};
+				checkOk.(name);
+			}.value;
+
+			// 7. generator error falls back (LIB-04): a generator that throws at play time.
+			{
+				var name = "generator error falls back";
+				var before, path, rc, arp, fresh, notes;
+				notes = [57, 60, 64, 60];
+				wr.("melodies/gen_throws.scd", "(desc: \"arp throws\", arp: { |plan, state| Error(\"boom in arp\").throw })\n");
+				path = tmpRoot +/+ "melodies/gen_throws.scd";
+				before = ~ppLogCount;
+				rc = recordBars.(10, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 8) } { 0.02.wait };  // bar 2
+					sendSel.('/pp/melody', 'gen_throws');
+					if (waitFor.({ ~ppSel[\melodies] == \gen_throws }, 2).not) {
+						fail.(name, "~ppSel[\\melodies] never became gen_throws");
+					};
+				});
+				arp = rc[\rows].select { |r| r[0] == \ppArp };
+				if (arp.size != 160) { fail.(name, "% arp rows, expected 160: the layer went silent".format(arp.size)) };
+				arp.do { |r, i|
+					if ((r[1] - (i * 0.25)).abs > 1e-6) { fail.(name, "arp row % at beat % is not at %".format(i, r[1], i * 0.25)) };
+					if (r[3] != notes[i % 4]) { fail.(name, "arp row % is note %, expected the classic %".format(i, r[3], notes[i % 4])) };
+				};
+				fresh = newLogs.(before);
+				if (fresh.count { |l| l.find("playing classic for this bar").notNil and: { l.find(path).notNil } } > 3) {
+					fail.(name, "more than 3 fallback ERROR lines for %: %".format(path, fresh));
+				};
+				if (fresh.count { |l| l.find("playing classic for this bar").notNil and: { l.find(path).notNil } } < 1) {
+					fail.(name, "no fallback ERROR line naming %: %".format(path, fresh));
+				};
+				if (fresh.any { |l| l.find("failed 3 times -- melodies back to classic").notNil }.not) {
+					fail.(name, "no 'failed 3 times -- melodies back to classic' line: %".format(fresh));
+				};
+				if (~ppSel[\melodies] != \classic) {
+					fail.(name, "~ppSel[\\melodies] is % at the end, expected classic".format(~ppSel[\melodies]));
+				};
+				checkOk.(name);
+			}.value;
+
+			// 8. short bar falls back: rows that fill 3.5 beats, not 4.
+			{
+				var name = "short bar falls back";
+				var before, path, rc, arp, fresh, notes, mine;
+				notes = [57, 60, 64, 60];
+				wr.("melodies/gen_short.scd", "(desc: \"short bar\", arp: { |plan, state| Array.fill(14, { [60, 0.25, 0.1, 0.5] }) })\n");
+				path = tmpRoot +/+ "melodies/gen_short.scd";
+				before = ~ppLogCount;
+				rc = recordBars.(10, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 8) } { 0.02.wait };  // bar 2
+					sendSel.('/pp/melody', 'gen_short');
+					if (waitFor.({ ~ppSel[\melodies] == \gen_short }, 2).not) {
+						fail.(name, "~ppSel[\\melodies] never became gen_short");
+					};
+				});
+				arp = rc[\rows].select { |r| r[0] == \ppArp };
+				if (arp.size != 160) { fail.(name, "% arp rows, expected 160: the layer went silent".format(arp.size)) };
+				arp.do { |r, i|
+					if ((r[1] - (i * 0.25)).abs > 1e-6) { fail.(name, "arp row % at beat % is not at %".format(i, r[1], i * 0.25)) };
+					if (r[3] != notes[i % 4]) { fail.(name, "arp row % is note %, expected the classic %".format(i, r[3], notes[i % 4])) };
+				};
+				fresh = newLogs.(before);
+				mine = fresh.select { |l| l.find("playing classic for this bar").notNil and: { l.find(path).notNil } };
+				if ((mine.size < 1) or: { mine.size > 3 }) {
+					fail.(name, "% fallback ERROR lines naming %, expected 1 to 3: %".format(mine.size, path, fresh));
+				};
+				if (mine.any { |l| l.find("3.5").isNil }) {
+					fail.(name, "a fallback ERROR line does not say 3.5: %".format(mine));
+				};
+				if (fresh.any { |l| l.find("failed 3 times -- melodies back to classic").notNil }.not) {
+					fail.(name, "no 'failed 3 times -- melodies back to classic' line: %".format(fresh));
+				};
+				if (~ppSel[\melodies] != \classic) {
+					fail.(name, "~ppSel[\\melodies] is % at the end, expected classic".format(~ppSel[\melodies]));
+				};
+				checkOk.(name);
+			}.value;
+
+			// 9. seeded generators replay (VERIFY flag: per-(song, bar, role) seeding).
+			{
+				var name = "seeded generators replay";
+				var rc1, rc2, n1, n2, s1, s2;
+				wr.("melodies/seedprobe.scd", "(desc: \"random arp\", arp: { |plan, state| Array.fill(16, { [rrand(60, 72), 0.25, 0.05, 0.5] }) })\n");
+				sendSel.('/pp/melody', 'seedprobe');
+				if (waitFor.({ ~ppSel[\melodies] == \seedprobe }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never became seedprobe");
+				};
+				rc1 = recordBars.(4, 32);
+				rc2 = recordBars.(4, 32);
+				n1 = rc1[\rows].select { |r| r[0] == \ppArp }.collect { |r| r[3] };
+				n2 = rc2[\rows].select { |r| r[0] == \ppArp }.collect { |r| r[3] };
+				if (n1.size != 64) { fail.(name, "% arp rows, expected 64".format(n1.size)) };
+				if (n1 != n2) { fail.(name, "two restarts played different notes: % vs %".format(n1, n2)) };
+				if (n1.copyRange(0, 15) == n1.copyRange(16, 31)) {
+					fail.(name, "bar 0 and bar 1 play the same notes: the seed does not follow the bar");
+				};
+				s1 = ~ppSeedFor.(0, 5, \lead);
+				s2 = ~ppSeedFor.(0, 5, \lead);
+				if ((s1 != s2) or: { s1.isInteger.not } or: { s1 < 0 } or: { s1 > 0x7FFFFFFF }) {
+					fail.(name, "~ppSeedFor gave % and % (expected one Integer in 0..0x7FFFFFFF)".format(s1, s2));
+				};
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ ~ppSel[\melodies] == \classic }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never returned to classic");
+				};
+				checkOk.(name);
+			}.value;
+
+			// 10. plan bar is the played bar (VERIFY flag: thisThread.beats at the bar start),
+			// across a tempo change.
+			{
+				var name = "plan bar is the played bar";
+				var rc, arp;
+				wr.("melodies/barprobe.scd", "(desc: \"bar number probe\", arp: { |plan, state| [[60 + (plan[\\bar] % 12), 4, 0.05, 0.5]] })\n");
+				sendSel.('/pp/melody', 'barprobe');
+				if (waitFor.({ ~ppSel[\melodies] == \barprobe }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never became barprobe");
+				};
+				rc = recordBars.(12, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 20) } { 0.02.wait };  // bar 5
+					recClock.tempo = 23;
+				});
+				arp = rc[\rows].select { |r| r[0] == \ppArp };
+				if (arp.size != 12) { fail.(name, "% arp rows, expected 12".format(arp.size)) };
+				arp.do { |r|
+					var absBar = ((rc[\startBeat] + r[1]) / 4 + 1e-6).floor.asInteger;
+					if ((r[3] - 60) != (absBar % 12)) {
+						fail.(name, "the arp row at beat % is note %, but the played bar is % (expected %)".format(r[1], r[3], absBar, 60 + (absBar % 12)));
+					};
+				};
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ ~ppSel[\melodies] == \classic }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never returned to classic");
+				};
+				checkOk.(name);
+			}.value;
+
+			// Back to the real library: classic everywhere, then the two
+			// temporary folders (and only those) removed.
+			~ppLibRoot = realLibRoot;
+			{
+				var revs = ();
+				~ppLibCategories.do { |c| revs[c] = ~ppLib[c][\classic][\rev] };
+				sendSel.('/pp/progression', 'classic');
+				sendSel.('/pp/palette', 'classic');
+				sendSel.('/pp/melody', 'classic');
+				~ppLibCategories.do { |c|
+					if (waitFor.({ ~ppLib[c][\classic][\rev] > revs[c] }, 5).not) {
+						fail.("fallback cleanup", "classic % was not reloaded from the real library".format(c));
+					};
+				};
+				~ppLibCategories.do { |c|
+					if (~ppSel[c] != \classic) {
+						fail.("fallback cleanup", "% left on % instead of classic".format(c, ~ppSel[c]));
+					};
+				};
+			}.value;
+			cleanupTmp.value;
+			tmpRoot = nil;
+
 			"LIBRARY PASS".postln;
 			s.quit(onComplete: { 0.exit });
 		};
 	}.try({ |err|
 		"LIBRARY FAIL: %".format(err.errorString).postln;
+		cleanupTmp.value;
 		s.quit(onComplete: { 1.exit });
 	});
 }, AppClock);
