@@ -10,12 +10,18 @@ PedalPulse is a personal soundtrack generator for indoor cycling workouts (e.g. 
 
 **Open:** ENG-03, the 60-minute stability check, is still waiting on a manual test ride.
 
-## Next Milestone Goals
+## Current Milestone: v2.0 Living Music
 
-Not defined yet; start with `/gsd-new-milestone`. The v2 candidates come from the deferred requirements:
-- Generative music: a shared harmony clock (GEN-01), variation across several timescales so a 60-minute ride doesn't feel looped (GEN-02), and EPIC also driving arrangement density (GEN-03)
-- Controls: an EPIC fine-tune slider (CTRL-01) and a configurable ramp time (CTRL-02)
-- Automation: playing back .zwo workout files (AUTO-01), deriving BPM from a cadence sensor (AUTO-02), and Zwift integration (AUTO-03)
+**Goal:** Replace the fixed A-minor loop with music that keeps changing over a 60+ minute ride, in harmony, melody, sound and structure, built on a growing library of named variations that the rider can always switch back to.
+
+**Target features:**
+- Modular engine: `main.scd` keeps the core (clock, buses, EPIC FX, limiter, OSC, transport); musical content lives in separately loaded modules
+- Variation library: progressions, melody styles and sound palettes are each a named `.scd` file under `supercollider/library/<category>/`; new experiments are added as new files and never overwrite old ones
+- Shared harmony clock: the current progression drives bass, arp, pad and lead together (GEN-01)
+- Melodies built from rules: motifs follow the current chord, repeat, then mutate
+- Song structure on several timescales: fills, motif changes, and breakdown, build and drop sections (GEN-02)
+- EPIC also drives arrangement density: Recovery sparse, VO2 full-on (GEN-03)
+- GUI library selectors: palette, progression and melody style each offer Auto or a specific item; lists are read from the library folder on disk; selections go out as send-only OSC messages
 
 ## Core Value
 
@@ -42,7 +48,16 @@ All shipped in v1.0:
 
 ### Active
 
-- [ ] Long-session stability (ENG-03: 60+ min without node/CPU growth). Carried over from v1.0. The static support is in place (per-note voices free themselves, the node count is bounded in the smoke test); it still needs the manual test ride
+Milestone v2.0 Living Music (detailed REQ-IDs in REQUIREMENTS.md):
+
+- [ ] Engine core split from musical content; content modules load from `supercollider/library/` and can be re-evaluated without stopping the music
+- [ ] Named, never-overwritten library files for progressions, melody styles and sound palettes
+- [ ] Shared chord progression followed by all pitched layers
+- [ ] Rule-based, evolving melodies instead of fixed note lists
+- [ ] Multi-timescale song structure (fills, motif changes, breakdown/build/drop sections)
+- [ ] EPIC drives arrangement density in addition to brightness/energy
+- [ ] GUI selectors (Auto or a named item) for palette, progression and melody style, populated from the library folder, send-only
+- [ ] Long-session stability (ENG-03: 60+ min without node/CPU growth). Carried over from v1.0; more important now that the engine does more
 
 ### Out of Scope
 
@@ -50,10 +65,10 @@ All shipped in v1.0:
 - Automatic cadence → BPM mapping from sensors (ANT+/BLE cadence sensors, trainers) — v1 sets BPM manually
 - Workout file playback (.zwo timelines driving BPM/EPIC automatically) — v1 is manual live control; good future candidate
 - Python app launching/managing sclang — user starts the SuperCollider patch separately
-- Generative evolution (shared harmony clock, multi-timescale variation) — v1 is a tech proof; fixed loop is acceptable, deferred to v2
 - EPIC fine-tune slider — presets only in v1, deferred to v2
-- Multiple tracks / sub-styles selection — one style is enough for v1
-- Layer density / builds & drops / harmonic mood driven by EPIC — v1 EPIC means brightness/energy; others are later enrichment
+- Multiple genres — v2.0 varies palettes, harmony and melody within melodic techno / progressive trance
+- Live-coding by the rider — the user isn't proficient in SuperCollider; new variations are described in plain words ("brighter", "heavier") and written by Claude as new library files
+- EPIC fine-tune slider (CTRL-01), configurable ramp time (CTRL-02) — not in v2.0 scope
 - Mobile / web control UI — Tkinter desktop app on the same Mac
 - Engine → GUI feedback (heartbeat connection indicator, live engine BPM/EPIC readout) — dropped 2026-10-10 to keep the app simple; the Python app stays send-only
 
@@ -64,6 +79,8 @@ All shipped in v1.0:
 - BPM is set directly by the user (not derived from cadence mathematically) — the user chooses a tempo that "feels like" the required cadence.
 - Success bar for v1 is a technical proof: Python → OSC → SuperCollider works, and BPM and EPIC audibly change the sound. Musical polish and generative evolution are deferred to v2 (decided during requirements scoping); a fixed loop is acceptable for v1.
 - Research (.planning/research/) recommends: SC 3.14.x with stock classes, Python 3.12/3.13 with Tcl/Tk 8.6 (avoid Homebrew tcl-tk 9.0), python-osc; conductor state layer in sclang; beat-synchronous tempo-ramp routine; EPIC via lagged control buses; heartbeat for connection status.
+- v2.0 motivation (2026-10-11): the v1 music is too simple and repetitive ("the same 5 notes for an hour"). The user wants variety in harmony, melody, sound palette and song structure, and every experiment kept so they can switch back later.
+- v2.0 workflow: the user listens on rides and gives plain-language feedback; Claude turns it into new named library files. Names (e.g. palette "Dark") are the shared vocabulary for feedback.
 - The README lists brainstormed app names; "PedalPulse" is the working name (folder name).
 
 ## Constraints
@@ -98,6 +115,11 @@ All shipped in v1.0:
 | Persistent FX/smoother synths have no envelope and are freed by the teardown block | Deliberate exception to the `doneAction: 2` rule, which still applies to per-note voices | ✓ Good — Phase 3 (leak-free re-evaluation checked headlessly) |
 | Re-evaluating `main.scd` keeps the transport state (`~ppWasPlaying = ~ppPlaying ? true`); only the first-ever evaluation autostarts | Milestone audit W1: re-evaluating after Stop used to restart the music while the GUI still showed "Start" | ✓ Good — quick task 261010-hyl (smoke checks for autostart / stays stopped / keeps playing) |
 | No resync after an engine restart (the GUI keeps its last values, the engine resets to defaults) | Follows from the send-only design; restarting the app resyncs | ⚠️ Revisit — milestone audit W2, accepted as tech debt in v1.0 |
+| v2.0: core + modules layout instead of one big .scd or one self-contained file per style | One big file grows unmanageable; per-style full patches duplicate the engine and stop the music when switching | — Pending |
+| v2.0: variation library lives in SuperCollider as named `.scd` files under `supercollider/library/<category>/`; new experiments are new files, never edits of old ones | The rider must be able to switch back to any earlier experiment; musical content is SC code anyway; git keeps history | — Pending |
+| v2.0: GUI builds its selector lists by reading the library folder on disk; selections are sent by name over OSC | Keeps the app send-only (no engine → GUI channel) and needs no separate Python config to keep in sync | — Pending |
+| v2.0: palettes rotate automatically, and a GUI selector can lock one | Variety by default on long rides, plus a way to audition and name what to give feedback on | — Pending |
+| v2.0: EPIC drives arrangement density as well as brightness/energy | Recovery should feel sparse and VO2 full-on | — Pending |
 
 ## Evolution
 
@@ -117,4 +139,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-10 after v1.0 milestone*
+*Last updated: 2026-10-11 after starting milestone v2.0*
