@@ -54,7 +54,7 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
   4. One command runs the existing smoke suite plus a new library check. The check validates every library file (it loads, has the right shape, and its voices go through the limiter and obey Stop and gate) and reports pass or fail
   5. Re-evaluating `main.scd` or a module several times leaves exactly one copy of every layer playing, with no extra nodes or routines, and Stop silences every layer and source
 
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -64,7 +64,7 @@ Plans:
 - [x] 04-02-PLAN.md — Tracer: play every layer from `library/*/classic.scd` through the new loader and renderer (0 parity mismatches against the golden)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 04-03-PLAN.md — The 7th layer (lead), `classic_lead.scd`, and select-by-name over `/pp/progression`, `/pp/palette`, `/pp/melody` with bar-line switching
+- [x] 04-03-PLAN.md — The 7th layer (lead), `classic_lead.scd`, and select-by-name over `/pp/progression`, `/pp/palette`, `/pp/melody` with bar-line switching
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 04-04-PLAN.md — Broken files never stop the music: validation, refusal naming the file, last good copy, per-bar classic fallback, seeding
@@ -160,7 +160,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 1. Tempo Link Skeleton | v1.0 | 3/3 | Complete | 2026-10-09 |
 | 2. Full Groove & Smooth Tempo | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 3. EPIC Zones & Volume | v1.0 | 4/4 | Complete | 2026-10-09 |
-| 4. Modular Engine & Variation Library | v2.0 | 2/6 | In Progress | - |
+| 4. Modular Engine & Variation Library | v2.0 | 3/6 | In Progress | - |
 | 5. Library Selectors in the GUI | v2.0 | 0/TBD | Not started | - |
 | 6. Shared Harmony & Progressions | v2.0 | 0/TBD | Not started | - |
 | 7. Sound Palettes | v2.0 | 0/TBD | Not started | - |
