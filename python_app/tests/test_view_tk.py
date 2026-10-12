@@ -11,6 +11,7 @@ bpm_logic.py's contract assumes under this project's real Tk build.
 from __future__ import annotations
 
 import functools
+import shutil
 import socket
 import time
 import tkinter as tk
@@ -641,3 +642,108 @@ def test_same_stem_goes_only_to_its_own_category(tk_root, tmp_path):
     assert sent["Palette"] == ["classic"]
     assert sent["Melody"] == ["classic"]
     assert sent["Progression"] == []
+
+
+# --- Rescan on open (GUI-05, GUI-06, D-08, D-09) ---------------------------
+
+
+def _post(root: tk.Tk, menu: tk.Menu) -> None:
+    """Run the menu's registered post command, as a real open does.
+
+    A synthetic click never reaches tk::MbPost (Pitfall 7), so the post
+    command is run directly through Tcl.
+    """
+    root.tk.eval(menu.cget("postcommand"))
+
+
+def _labels(menu: tk.Menu) -> list[str]:
+    return [menu.entrycget(i, "label") for i in range(menu.index("end") + 1)]
+
+
+def _seed_library(tmp_path: Path) -> Path:
+    layout = {
+        "palettes": ["classic"],
+        "progressions": ["classic"],
+        "melodies": ["classic", "classic_lead"],
+    }
+    for folder, stems in layout.items():
+        (tmp_path / folder).mkdir()
+        for stem in stems:
+            (tmp_path / folder / f"{stem}.scd").write_text("()")
+    return tmp_path
+
+
+def test_every_dropdown_rebuilds_on_open(tk_root, tmp_path):
+    window = _build_all(tk_root, library_root=_seed_library(tmp_path)).window
+
+    for title, menu in window.library_menus.items():
+        assert menu.cget("postcommand"), title
+
+
+def test_rebuild_is_idempotent(tk_root, tmp_path):
+    built = _build_all(tk_root, library_root=_seed_library(tmp_path))
+    window = built.window
+
+    for selector in built.selectors:
+        menu = window.library_menus[selector.title]
+        _post(tk_root, menu)
+        _post(tk_root, menu)
+        labels = _labels(menu)
+        assert labels == selector.options()
+        assert len(labels) == len(set(labels))
+
+
+def test_new_file_appears_on_next_open(tk_root, tmp_path):
+    root_dir = _seed_library(tmp_path)
+    built = _build_all(tk_root, library_root=root_dir)
+    window = built.window
+    menu = window.library_menus["Melody"]
+    var = window.library_vars["Melody"]
+    new_file = root_dir / "melodies" / "zz_try.scd"
+
+    new_file.write_text("()")
+    _post(tk_root, menu)
+    labels = _labels(menu)
+    assert labels[-1] == "zz_try"
+
+    menu.invoke(len(labels) - 1)
+    assert built.selector_sent["Melody"] == ["zz_try"]
+    assert var.get() == "zz_try"
+
+    new_file.unlink()
+    _post(tk_root, menu)
+    assert "zz_try" not in _labels(menu)
+    assert var.get() == "zz_try"
+
+
+def test_deleted_selected_file_keeps_its_label_and_another_pick_still_sends(tk_root, tmp_path):
+    root_dir = _seed_library(tmp_path)
+    built = _build_all(tk_root, library_root=root_dir)
+    window = built.window
+    menu = window.library_menus["Melody"]
+    var = window.library_vars["Melody"]
+
+    menu.invoke(_labels(menu).index("classic_lead"))
+    assert var.get() == "classic_lead"
+
+    (root_dir / "melodies" / "classic_lead.scd").unlink()
+    _post(tk_root, menu)
+    labels = _labels(menu)
+    assert var.get() == "classic_lead"
+    assert "classic_lead" not in labels
+
+    menu.invoke(labels.index("classic"))
+    assert built.selector_sent["Melody"] == ["classic_lead", "classic"]
+    assert var.get() == "classic"
+
+
+def test_missing_folder_shows_auto_only_after_reopen(tk_root, tmp_path):
+    root_dir = _seed_library(tmp_path)
+    window = _build_all(tk_root, library_root=root_dir).window
+    menu = window.library_menus["Melody"]
+    assert _labels(menu) == ["Auto", "classic", "classic_lead"]
+
+    shutil.rmtree(root_dir / "melodies")
+    _post(tk_root, menu)
+
+    assert _labels(menu) == ["Auto"]

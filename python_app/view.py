@@ -186,6 +186,11 @@ class BpmWindow:
         given order. Tuple padding goes into pack() only; a widget
         constructor rejects it. takefocus=0 is set explicitly (GUI-07) so
         the root arrow-key shortcuts stay on BPM.
+
+        The list is rebuilt in each menu's post command (D-08), which a
+        real click reaches on aqua through tk::MbPost; there is no
+        watcher, timer or thread. The real click is checked by hand in
+        the end-of-phase UAT (RESEARCH A1, A3).
         """
         self.library_column = tk.Frame(self.root, pady=10)
         self.library_column.pack(side="left", anchor="n", padx=(0, 12))
@@ -203,6 +208,12 @@ class BpmWindow:
             button.configure(width=config.LIBRARY_DROPDOWN_WIDTH, anchor="w", takefocus=0)
             button.pack(fill="x", pady=(0, 10))
             menu = button["menu"]
+            # D-08: rebuild this menu's list every time it opens. Default
+            # arguments capture this iteration's selector, var and menu
+            # (a plain closure would see only the last category).
+            menu.configure(
+                postcommand=lambda s=selector, v=var, m=menu: self._refresh_library_menu(s, v, m)
+            )
 
             selector.add_listener(var.set)
             self._refresh_library_menu(selector, var, menu)
@@ -217,7 +228,11 @@ class BpmWindow:
 
         Entry labels are the exact file stems (D-06); a pick calls
         selector.select(n). It never sets var itself: the selector's
-        listener does that only when the choice really changed.
+        listener does that only when the choice really changed, so a
+        selected name whose file was deleted stays shown on the button
+        (GUI-06). The post command runs twice per open on this Tk, hence
+        delete-then-add. It only calls selector.options() (never raises)
+        and Tk menu methods, so the menu always posts.
         """
         menu.delete(0, "end")
         for name in selector.options():
