@@ -1924,6 +1924,140 @@ fork({
 				checkOk.(name);
 			}.value;
 
+			// 11. auto rotates progressions (HARM-04, HARM-02, D-08 to D-11): with a
+			// short hold, Auto starts on classic, then changes progression by itself,
+			// only at cycle ends, never back to one of the last two it played.
+			{
+				var name = "auto rotates progressions";
+				var savedHold, savedSeed, rc, rws, cyc, runs, before, fresh, valid, lines;
+				savedHold = ~ppAutoHoldBars;
+				savedSeed = ~ppAutoSeed;
+				~ppAutoHoldBars = [4, 8];
+				~ppAutoSeed = 11;
+				valid = listStems.(~ppLibRoot +/+ "progressions").reject { |n| n[0] == $_ };
+				if (valid.size != 8) {
+					fail.(name, "expected 8 valid progression stems on disk, found %: %".format(valid.size, valid));
+				};
+				before = ~ppLogCount;
+				sendSel.('/pp/melody', 'classic_lead');
+				sendSel.('/pp/progression', 'auto');
+				if (waitFor.({
+					(~ppSel[\progressions] == \auto) and: { (~ppSel[\melodies] == \classic_lead)
+						and: { valid.every { |n| ~ppLib[\progressions][n.asSymbol].notNil } } }
+				}, 5).not) {
+					fail.(name, "the selections never became auto and classic_lead with every progression loaded: % / %".format(~ppSel, ~ppLib[\progressions].keys));
+				};
+				rc = recordBars.(48, 32);
+				rws = rc[\rows];
+				cyc = ~ppHarmCycleLog.();
+				// Contiguous cycles, the first is classic at bar 0.
+				cyc.do { |c, k|
+					if (k == 0) {
+						if ((c[\start] != 0) or: { c[\stem] != \classic }) {
+							fail.(name, "the first cycle is % at %, expected classic at 0: %".format(c[\stem], c[\start], cyc));
+						};
+					} {
+						if (c[\start] != (cyc[k - 1][\start] + cyc[k - 1][\len])) {
+							fail.(name, "cycle % starts at %, not at the end of the previous one: %".format(k, c[\start], cyc));
+						};
+					};
+				};
+				// Runs: consecutive cycles of one progression.
+				runs = List.new;
+				cyc.do { |c|
+					if (runs.size > 0 and: { runs[runs.size - 1][\stem] == c[\stem] }) {
+						runs[runs.size - 1][\len] = runs[runs.size - 1][\len] + c[\len];
+					} {
+						runs.add((stem: c[\stem], start: c[\start], len: c[\len]));
+					};
+				};
+				runs.do { |r, k|
+					if ((k < (runs.size - 1)) and: { (r[\len] < 4) or: { r[\len] > 8 } }) {
+						fail.(name, "the run of % at bar % lasts % bars, expected 4 to 8: %".format(r[\stem], r[\start], r[\len], runs));
+					};
+					if ((k >= 1) and: { r[\stem] == runs[k - 1][\stem] }) {
+						fail.(name, "run % repeats the previous progression %: %".format(k, r[\stem], runs));
+					};
+					if ((k >= 2) and: { r[\stem] == runs[k - 2][\stem] }) {
+						fail.(name, "run % goes back to % within two changes: %".format(k, r[\stem], runs));
+					};
+				};
+				if (runs.collect { |r| r[\stem] }.asSet.size < 3) {
+					fail.(name, "fewer than 3 different progressions played in 48 bars: %".format(runs));
+				};
+				fresh = newLogs.(before);
+				lines = fresh.select { |l| l.beginsWith("PedalPulse: progression ") and: { l.find("auto seed").isNil } };
+				if (lines.size != runs.size) {
+					fail.(name, "% progression lines for % runs: %".format(lines.size, runs.size, lines));
+				};
+				runs.do { |r|
+					if (lines.any { |l| l.beginsWith("PedalPulse: progression " ++ r[\stem] ++ ":") }.not) {
+						fail.(name, "no progression line for the run of % in %".format(r[\stem], lines));
+					};
+				};
+				harmonyCheck.(name, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
+				if (fresh.any { |l| l.find("rotates progressions").notNil }.not) {
+					fail.(name, "the auto selection line does not say 'rotates progressions': %".format(fresh));
+				};
+				~ppAutoHoldBars = savedHold;
+				~ppAutoSeed = savedSeed;
+				sendSel.('/pp/progression', 'classic');
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ (~ppSel[\progressions] == \classic) and: { ~ppSel[\melodies] == \classic } }, 3).not) {
+					fail.(name, "selections did not return to classic: %".format(~ppSel));
+				};
+				checkOk.(name);
+			}.value;
+
+			// 12. auto keeps the playing progression first (planner decision, RESEARCH
+			// Open Question 4): Auto picked in the middle of a ride adopts what plays.
+			{
+				var name = "auto keeps the playing progression first";
+				var savedHold, savedSeed, rc, cyc, firstOther;
+				savedHold = ~ppAutoHoldBars;
+				savedSeed = ~ppAutoSeed;
+				~ppAutoHoldBars = [4, 4];
+				~ppAutoSeed = 11;
+				sendSel.('/pp/progression', 'anthem');
+				if (waitFor.({ ~ppSel[\progressions] == \anthem }, 3).not) {
+					fail.(name, "~ppSel[\\progressions] never became anthem");
+				};
+				rc = recordBars.(24, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 20) } { 0.02.wait };  // bar 5
+					sendSel.('/pp/progression', 'auto');
+					if (waitFor.({ ~ppSel[\progressions] == \auto }, 3).not) {
+						fail.(name, "~ppSel[\\progressions] never became auto");
+					};
+				});
+				cyc = ~ppHarmCycleLog.();
+				cyc.do { |c, k|
+					if ((k > 0) and: { c[\start] != (cyc[k - 1][\start] + cyc[k - 1][\len]) }) {
+						fail.(name, "cycle % starts at %, not at the end of the previous one: %".format(k, c[\start], cyc));
+					};
+				};
+				[0, 4, 8].do { |st|
+					var c = cyc.detect { |x| x[\start] == st };
+					if (c.isNil or: { c[\stem] != \anthem }) {
+						fail.(name, "the cycle at bar % is %, expected anthem (adopted by Auto): %".format(st, if (c.isNil) { nil } { c[\stem] }, cyc));
+					};
+				};
+				firstOther = cyc.detect { |c| c[\stem] != \anthem };
+				if (firstOther.isNil) {
+					fail.(name, "Auto never left anthem: %".format(cyc));
+				};
+				if ((firstOther[\start] != 12) and: { firstOther[\start] != 16 }) {
+					fail.(name, "the first other progression starts at bar %, expected 12 or 16: %".format(firstOther[\start], cyc));
+				};
+				~ppAutoHoldBars = savedHold;
+				~ppAutoSeed = savedSeed;
+				sendSel.('/pp/progression', 'classic');
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ (~ppSel[\progressions] == \classic) and: { ~ppSel[\melodies] == \classic } }, 3).not) {
+					fail.(name, "selections did not return to classic: %".format(~ppSel));
+				};
+				checkOk.(name);
+			}.value;
+
 			// The tier leaves every category on classic.
 			~ppLibCategories.do { |c|
 				if (~ppSel[c] != \classic) {
@@ -2311,6 +2445,62 @@ fork({
 				sendSel.('/pp/melody', 'classic');
 				if (waitFor.({ ~ppSel[\melodies] == \classic }, 3).not) {
 					fail.(name, "~ppSel[\\melodies] never returned to classic");
+				};
+				checkOk.(name);
+			}.value;
+
+			// 11. auto adds a new progression file (D-10, LIB-05): a progression file
+			// written while Auto runs joins the rotation by itself, no restart.
+			{
+				var name = "auto adds a new progression file";
+				var savedHold, savedSeed, rc, cyc, runs, fp, rcode;
+				savedHold = ~ppAutoHoldBars;
+				savedSeed = ~ppAutoSeed;
+				rcode = ("cp" + shq.(realLibRoot +/+ "progressions/anthem.scd") + shq.(tmpRoot +/+ "progressions/anthem.scd")).systemCmd;
+				if (rcode != 0) { fail.(name, "cp of anthem.scd failed with %".format(rcode)) };
+				~ppAutoHoldBars = [4, 4];
+				~ppAutoSeed = 11;
+				sendSel.('/pp/progression', 'auto');
+				if (waitFor.({ ~ppSel[\progressions] == \auto }, 3).not) {
+					fail.(name, "~ppSel[\\progressions] never became auto");
+				};
+				rc = recordBars.(24, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 18) } { 0.02.wait };  // bar 4.5
+					wr.("progressions/fresh_prog.scd", "(\ndesc: \"fresh\",\nbarsPerChord: 1,\nchords: [\n\t(root: 0, quality: \\min),\n\t(root: 5, quality: \\min)\n]\n)\n");
+				});
+				cyc = ~ppHarmCycleLog.();
+				cyc.do { |c, k|
+					if ((k > 0) and: { c[\start] != (cyc[k - 1][\start] + cyc[k - 1][\len]) }) {
+						fail.(name, "cycle % starts at %, not at the end of the previous one: %".format(k, c[\start], cyc));
+					};
+				};
+				runs = List.new;
+				cyc.do { |c|
+					if (runs.size > 0 and: { runs[runs.size - 1][\stem] == c[\stem] }) {
+						runs[runs.size - 1][\len] = runs[runs.size - 1][\len] + c[\len];
+					} {
+						runs.add((stem: c[\stem], start: c[\start], len: c[\len]));
+					};
+				};
+				if ((runs.size < 3)
+					or: { (runs[0][\stem] != \classic) or: { (runs[0][\start] != 0) or: { runs[0][\len] != 4 } } }
+					or: { (runs[1][\stem] != \anthem) or: { (runs[1][\start] != 4) or: { runs[1][\len] != 4 } } }
+					or: { (runs[2][\stem] != \classic) or: { (runs[2][\start] != 8) or: { runs[2][\len] != 4 } } }) {
+					fail.(name, "the first runs are not classic 0-3, anthem 4-7, classic 8-11: %".format(runs));
+				};
+				fp = cyc.detect { |c| c[\stem] == \fresh_prog };
+				if (fp.isNil) {
+					fail.(name, "fresh_prog.scd never joined the rotation: %".format(cyc));
+				};
+				if (fp[\start] > 20) {
+					fail.(name, "fresh_prog started at bar %, expected at or before 20: %".format(fp[\start], cyc));
+				};
+				harmonyCheck.(name, rc[\rows], [\ppBass, \ppArp, \ppPad, \ppLead]);
+				~ppAutoHoldBars = savedHold;
+				~ppAutoSeed = savedSeed;
+				sendSel.('/pp/progression', 'classic');
+				if (waitFor.({ ~ppSel[\progressions] == \classic }, 3).not) {
+					fail.(name, "~ppSel[\\progressions] never returned to classic");
 				};
 				checkOk.(name);
 			}.value;
