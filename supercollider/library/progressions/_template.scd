@@ -10,41 +10,41 @@
 //     variables, no Pdef or Pbindef, no clocks, no server, no files.
 //   - desc is required: one plain sentence saying what it sounds like.
 //   - Read and write Events with [\key], never dot syntax.
-//   - A progression provides bass and pad (either one is enough; a missing one
-//     plays classic's part).
-//   - A generator is { |plan, state| } and returns one bar as an Array of rows
-//     [note, dur, amp, legato]. The durs of the rows add up to exactly 4 beats.
-//     note is a MIDI number, a chord (an Array of MIDI numbers) or \rest. amp is
-//     0 to 1. legato is the note length as a fraction of dur.
-//   - plan has bar, songBar, phraseBar (songBar % 8) and role. Later phases only
-//     ever ADD optional keys, so a file written today keeps working.
-//   - state is an empty Event that lives as long as this file is selected. A
-//     generator may keep notes in it between bars.
-//   - rrand and choose are allowed: they are seeded per (song, bar, role), so a
-//     restart plays the same bars.
+//   - A progression is chord data: chords is an Array of 1 to 16 chords. Each
+//     chord is either (root: 0-11, quality: \maj or \min) or
+//     (root: 0-11, intervals: [0, 3, 7]) for any 3- or 4-note chord (the
+//     intervals are semitones above the chord's root; they win over quality).
+//   - Pace: bars: 1-8 on a chord says how many bars that chord lasts, or
+//     barsPerChord: 1-8 on the whole file sets it for every chord. The cycle (all
+//     chords added up) is at most 16 bars; 8 or less keeps a pick quick to hear,
+//     because a new pick waits for the end of the current cycle.
+//   - root is the number of semitones above the key note A (A 0, C 3, D 5, E 7,
+//     F 8, G 10). The engine always plays in A and supplies the key, so a file
+//     only says "which chord", never "which key". Listing the same chord twice in
+//     a row holds it for the sum of their bars (see deep.scd).
+//   - The core plays the bass (offbeat eighths on the chord's root, with a leading
+//     note before each chord change) and the pad (the nearest voicing, held for
+//     the chord). The arp and the lead follow the chord automatically.
+//   - A file may still add bass and/or pad generators { |plan, state| } to replace
+//     the core's part. A generator returns one bar as an Array of rows
+//     [note, dur, amp, legato] whose durs add up to exactly 4 beats; note is a MIDI
+//     number, a chord (an Array of MIDI numbers) or \rest. plan then also has
+//     chord, nextChord, changesNext, chordBar, chordBars, cycleBar, cycleLen,
+//     voicing, scale and progression, next to bar, songBar, phraseBar and role.
+//     Every note a generator plays must be in its bar's chord (the check enforces
+//     it).
+//   - desc stays required; nothing runs at load.
 //
-// This template reproduces classic's rows.
+// This template plays Am F C G, one chord per bar.
 (
-desc: "Template: the shipped A-minor groove, to copy and change",
+desc: "Template: Am F C G, a new chord every bar, to copy and change",
 
-bass: { |plan, state|
-	// Offbeat eighths: A1 (MIDI 33) on the "and" of beats 1-3, C2 (MIDI 36) on
-	// the "and" of beat 4. Eight rows of half a beat fill the 4 beats.
-	[
-		[\rest, 0.5, 0.1, 0.8],
-		[33, 0.5, 0.1, 0.8],
-		[\rest, 0.5, 0.1, 0.8],
-		[33, 0.5, 0.1, 0.8],
-		[\rest, 0.5, 0.1, 0.8],
-		[33, 0.5, 0.1, 0.8],
-		[\rest, 0.5, 0.1, 0.8],
-		[36, 0.5, 0.1, 0.8]
-	]
-},
+barsPerChord: 1,
 
-pad: { |plan, state|
-	// One chord for the whole bar: Am, then Am with a passing F on odd bars.
-	var chord = if (plan[\songBar].even) { [45, 48, 52] } { [45, 48, 53] };
-	[[chord, 4, 0.06, 0.9]]
-}
+chords: [
+	(root: 0, quality: \min),   // Am
+	(root: 8, quality: \maj),   // F
+	(root: 3, quality: \maj),   // C
+	(root: 10, quality: \maj)   // G
+]
 )

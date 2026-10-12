@@ -1088,6 +1088,52 @@ fork({
 			checkOk.("harmony units");
 		}.value;
 
+		// ---- Shipped progressions (HARM-02, D-04..D-07): the real files on disk ----
+		// What every shipped progression must play, pinned by name, cycle length and
+		// (where it matters) the span of each chord. A wrong root number in a file is
+		// caught here, before the file is frozen by its commit.
+		{
+			var req, table, descs, mod, cyc;
+
+			req = { |ok, what| if (ok.not) { fail.("shipped progressions", what) } };
+			descs = List.new;
+			// stem, names, len, spans [name, bars] or nil, last chord pitch classes or nil
+			table = [
+				[\anthem, "Am F C G", 4, nil, nil],
+				[\rocker, "Am G F G", 4, nil, nil],
+				[\lift, "Am F G G", 4, [["Am", 1], ["F", 1], ["G", 2]], nil],
+				[\return, "Am C G F", 4, nil, nil],
+				[\deep, "Am Am F G", 8, [["Am", 4], ["F", 2], ["G", 2]], nil],
+				[\melancholy, "Am Em F Dm", 4, nil, nil],
+				[\drama, "Am Dm F E", 4, nil, [4, 8, 11]]
+			];
+			table.do { |row|
+				var stem = row[0];
+				mod = ~ppLibLoad.(\progressions, stem);
+				req.(mod.notNil, "could not load progressions/%".format(stem));
+				cyc = ~ppHarmCycle.(stem, mod);
+				req.(cyc[\names] == row[1], "% plays % instead of %".format(stem, cyc[\names], row[1]));
+				req.(cyc[\len] == row[2], "% has a cycle of % bars instead of %".format(stem, cyc[\len], row[2]));
+				req.(cyc[\len] <= 8, "% has a cycle of % bars, more than 8".format(stem, cyc[\len]));
+				req.(cyc[\spans][0][\chord][\name] == "Am", "% starts on % instead of Am".format(stem, cyc[\spans][0][\chord][\name]));
+				if (row[3].notNil) {
+					var got = cyc[\spans].collect { |sp| [sp[\chord][\name], sp[\bars]] };
+					req.(got == row[3], "% spans are % instead of %".format(stem, got, row[3]));
+				};
+				if (row[4].notNil) {
+					var last = cyc[\spans].last[\chord];
+					req.(last[\pcs] == row[4], "% last chord % has pitch classes % instead of %".format(stem, last[\name], last[\pcs], row[4]));
+				};
+				descs.add(mod[\desc]);
+			};
+			mod = ~ppLibLoad.(\progressions, \classic);
+			req.(mod.notNil, "could not load progressions/classic");
+			descs.add(mod[\desc]);
+			req.(descs.size == 8, "expected 8 descriptions, found %".format(descs.size));
+			req.(descs.asArray.as(Set).size == 8, "the 8 descriptions are not all different: %".format(descs));
+			checkOk.("shipped progressions");
+		}.value;
+
 		// main.scd must start from the D-07 defaults, which parity depends on.
 		~ppSel = nil;
 		~ppLib = nil;
