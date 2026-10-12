@@ -14,7 +14,9 @@ Each `.scd` file in a folder is one named variation. Its file name without
 dropdowns. `classic.scd` in each folder is the original sound,
 so picking `classic` always brings it back. Right now the library holds
 `progressions/classic`, `melodies/classic`, `melodies/classic_lead` (the classic
-arp plus a faint lead one octave up) and `palettes/classic`.
+arp plus a faint lead one octave up), `melodies/classic_lead_loud` (the same
+lead, but as loud as the arp so it is easy to hear) and `palettes/classic`.
+Every file also has a `desc` line at the top that says what it sounds like.
 
 ## The one rule
 
