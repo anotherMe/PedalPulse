@@ -4,13 +4,14 @@ The Tk compatibility gate runs BEFORE importing osc_client/bpm_logic/view,
 so a broken interpreter never even imports python-osc (GUI-04, D-03, D-04).
 All sends happen on the Tk main thread via a non-blocking UDP send; there is
 no thread and no receive path (D-24). The app sends /pp/bpm, /pp/play,
-/pp/epic and /pp/volume and never starts, watches or stops the
-sclang/scsynth engine processes.
+/pp/epic, /pp/volume, /pp/palette, /pp/progression and /pp/melody and never
+starts, watches or stops the sclang/scsynth engine processes.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 
 import config
@@ -36,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     tkinter = tkcheck.check_tk_compatible()  # exits 1 before any python-osc import on a broken Tk
 
     from bpm_logic import BpmController, EpicController, PlayController, VolumeController
+    from library_logic import LibrarySelector
     from osc_client import OscClient
     from view import BpmWindow
 
@@ -51,6 +53,14 @@ def main(argv: list[str] | None = None) -> int:
     play = PlayController(send=client.send_play)
     epic = EpicController(send=client.send_epic)
     volume = VolumeController(send=client.send_volume)
+    selectors = [
+        LibrarySelector(
+            title,
+            config.LIBRARY_ROOT / folder,
+            send=functools.partial(client.send_selection, address),
+        )
+        for title, folder, address in config.LIBRARY_CATEGORIES
+    ]
     BpmWindow(
         root,
         controller,
@@ -58,11 +68,14 @@ def main(argv: list[str] | None = None) -> int:
         play_controller=play,
         epic_controller=epic,
         volume_controller=volume,
+        selector_controllers=selectors,
     )
     controller.send_initial()
     play.send_initial()
     epic.send_initial()
     volume.send_initial()
+    for selector in selectors:
+        selector.send_initial()
 
     if args.exit_after > 0:
         root.after(args.exit_after, root.destroy)
