@@ -114,7 +114,23 @@ Plans:
   4. Picking a named progression switches to it at the end of the current progression cycle, never mid-cycle, and it stays until another choice is made
   5. The standing exit gate holds: Stop silences every layer, re-evaluating stacks nothing, and the smoke suite plus the library check pass with every progression file
 
-**Plans:** TBD
+**Plans:** 5 plans
+
+Plans:
+**Wave 1**
+- [ ] 06-01-PLAN.md — Tracer: pick anthem and bass, pad, arp and lead all play Am F C G together (memoized harmony entry, core bass/pad, chord-follow mapping); a mid-cycle pick waits for the cycle end
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 06-02-PLAN.md — The strict harmony gate before more files are frozen: exact rule tables, classic byte-identical, bounded memo, strict chord-data static branch, malformed-data refusals, chord-follow recording for every progression on disk
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 06-03-PLAN.md — Six more progressions (rocker, lift, return, deep, melancholy, drama) pinned by a table check, chord-data template, names in the app
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 06-04-PLAN.md — Auto: classic first, a new progression every 2-3 minutes at cycle ends, no quick repeats, new files join; bounded, failing and broken files handled
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 06-05-PLAN.md — Exit gate on the real engine (Stop/Start and re-evaluation with anthem and auto), README and melody template, full gate, the rider's listening check
 
 ### Phase 7: Sound Palettes
 
@@ -173,7 +189,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 3. EPIC Zones & Volume | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
 | 5. Library Selectors in the GUI | v2.0 | 3/3 | Complete    | 2026-10-12 |
-| 6. Shared Harmony & Progressions | v2.0 | 0/TBD | Not started | - |
+| 6. Shared Harmony & Progressions | v2.0 | 0/5 | Planned | - |
 | 7. Sound Palettes | v2.0 | 0/TBD | Not started | - |
 | 8. Evolving Melodies | v2.0 | 0/TBD | Not started | - |
 | 9. Song Structure, EPIC Density & Ride Soak | v2.0 | 0/TBD | Not started | - |

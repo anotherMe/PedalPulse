@@ -43,7 +43,16 @@ sclang is not on PATH: `scripts/check.sh` uses `/Applications/SuperCollider.app/
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| (filled from the PLAN.md tasks) | | | | | | | | | ⬜ pending |
+| 06-01-T1 | 01 | 1 | HARM-01, HARM-03 | T-06-01, T-06-02 | malformed chord data refused at load; per-bar harmony under try | integration (recordBars) | `./scripts/check.sh --library-only` (CHECK OK: chord follow anthem, parity) | ❌ W0 created here | ⬜ pending |
+| 06-01-T2 | 01 | 1 | HARM-04 | T-06-03 | unchanged loopback/name/containment controls | integration + smoke | `bash scripts/check.sh` (named progression switches at the cycle end) | ❌ W0 created here | ⬜ pending |
+| 06-02-T1 | 02 | 2 | HARM-01, HARM-03 | — | — | unit (pure functions) | `./scripts/check.sh --library-only` (CHECK OK: harmony units) | ❌ W0 created here | ⬜ pending |
+| 06-02-T2 | 02 | 2 | HARM-01, HARM-03 | T-06-04, T-06-05 | seven malformed fixtures refused with exact reasons | static + integration | `./scripts/check.sh --library-only` (static check catches bad files, chord follow <stem>) | ❌ W0 created here | ⬜ pending |
+| 06-03-T1 | 03 | 3 | HARM-02, HARM-01 | T-06-06 | lint and side-effect checks on new files | static + integration | `./scripts/check.sh --library-only` (shipped progressions, 15 files) | ✅ after 06-02 | ⬜ pending |
+| 06-03-T2 | 03 | 3 | HARM-02 | — | — | full gate + Python scan | `bash scripts/check.sh` and the scan_library one-liner | ✅ | ⬜ pending |
+| 06-04-T1 | 04 | 4 | HARM-04, HARM-02 | T-06-07 | scan names pass ~ppStemValid, load only via ~ppLibEnsure | integration (TDD) | `./scripts/check.sh --library-only` (auto rotates progressions, auto adds a new progression file) | ❌ W0 created here | ⬜ pending |
+| 06-04-T2 | 04 | 4 | HARM-04 | T-06-08, T-06-09, T-06-10 | broken file reported once; failing file excluded; bounded state | integration | `bash scripts/check.sh` (auto stays bounded, auto skips a failing progression, auto reports a broken file once) | ❌ W0 created here | ⬜ pending |
+| 06-05-T1 | 05 | 5 | HARM-01 | T-06-11, T-06-12 | Stop releases held pads; re-evaluation stacks nothing | smoke | `bash scripts/check.sh` (progression stop and start, progression re-evaluation) | ❌ W0 created here | ⬜ pending |
+| 06-05-T2 | 05 | 5 | HARM-01..04 | — | — | full gate + manual | `bash scripts/check.sh`, pytest; listening check in UAT | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
