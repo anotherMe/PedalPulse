@@ -22,6 +22,17 @@
 //     ever ADD optional keys, so a file written today keeps working.
 //   - rrand and choose are allowed: they are seeded per (song, bar, role), so a
 //     restart plays the same bars.
+//   - Chords: the engine moves a melody's notes onto the chord that is playing.
+//     Write the figure against Am (A, C, E in any octave); the engine plays the
+//     root, third and fifth of the current chord in the same register, and a note
+//     between chord tones goes to the nearest chord tone. So the classic A3 C4 E4
+//     C4 figure below becomes the chord's root, third, fifth, third.
+//   - ownHarmony: add ownHarmony: true to the Event of a melody that works out its
+//     own notes from plan[\chord] or plan[\scale]. The engine then leaves its notes
+//     as they are. Without it, arp and lead always follow the chord.
+//   - plan also has the harmony keys progression, chord, nextChord, changesNext,
+//     chordBar, chordBars, cycleBar, cycleLen, voicing and scale (see
+//     library/README.md, "File contract").
 //
 // This template plays classic's arp and a lead that rests for the whole bar.
 (
