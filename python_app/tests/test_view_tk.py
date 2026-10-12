@@ -10,15 +10,21 @@ bpm_logic.py's contract assumes under this project's real Tk build.
 
 from __future__ import annotations
 
+import functools
+import socket
 import time
 import tkinter as tk
 import tkinter.font as tkfont
 import types
+from pathlib import Path
 
 import pytest
+from pythonosc.osc_message import OscMessage
 
 import config
 from bpm_logic import BpmController, EpicController, PlayController, VolumeController
+from library_logic import LibrarySelector
+from osc_client import OscClient
 from view import BpmWindow
 
 
@@ -63,7 +69,13 @@ def tk_root():
     root.destroy()
 
 
-def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
+def _build_all(
+    root: tk.Tk,
+    status_text: str = "Sending to test:1",
+    *,
+    library_root: Path | None = None,
+    selectors: list[LibrarySelector] | None = None,
+):
     sent: list[float] = []
     controller = BpmController(send=sent.append, schedule=root.after, cancel=root.after_cancel)
     play_sent: list[int] = []
@@ -72,6 +84,18 @@ def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
     epic = EpicController(send=epic_sent.append)
     volume_sent: list[float] = []
     volume = VolumeController(send=volume_sent.append)
+    selector_sent: dict[str, list[str]] = {}
+    if selectors is None:
+        selectors = []
+        melody_sent: list[str] = []
+        selector_sent["Melody"] = melody_sent
+        selectors.append(
+            LibrarySelector(
+                "Melody",
+                (library_root or config.LIBRARY_ROOT) / "melodies",
+                send=melody_sent.append,
+            )
+        )
     window = BpmWindow(
         root,
         controller,
@@ -79,6 +103,7 @@ def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
         play_controller=play,
         epic_controller=epic,
         volume_controller=volume,
+        selector_controllers=selectors,
     )
     return types.SimpleNamespace(
         window=window,
@@ -90,6 +115,8 @@ def _build_all(root: tk.Tk, status_text: str = "Sending to test:1"):
         epic_sent=epic_sent,
         volume=volume,
         volume_sent=volume_sent,
+        selectors=selectors,
+        selector_sent=selector_sent,
     )
 
 
@@ -469,3 +496,66 @@ def test_window_layout_order(tk_root):
         window.status_label,
         window.on_top_check,
     ]
+
+
+# --- Library selectors (GUI-05, GUI-06) ---------------------------------
+
+
+def _menu_labels(menu: tk.Menu) -> list[str]:
+    return [menu.entrycget(i, "label") for i in range(menu.index("end") + 1)]
+
+
+def test_melody_dropdown_pick_reaches_engine_over_udp(tk_root, tmp_path):
+    folder = tmp_path / "melodies"
+    folder.mkdir()
+    for name in ("classic.scd", "classic_lead.scd", "_template.scd", "notes.txt"):
+        (folder / name).write_text("()")
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("127.0.0.1", 0))
+        sock.settimeout(2)
+        client = OscClient(host="127.0.0.1", port=sock.getsockname()[1])
+        selector = LibrarySelector(
+            "Melody",
+            folder,
+            send=functools.partial(client.send_selection, config.OSC_MELODY_ADDRESS),
+        )
+        built = _build_all(tk_root, selectors=[selector])
+        window = built.window
+
+        assert window.library_vars["Melody"].get() == "Auto"
+        assert str(window.library_buttons["Melody"]["takefocus"]) == "0"
+
+        menu = window.library_menus["Melody"]
+        assert _menu_labels(menu) == ["Auto", "classic", "classic_lead"]
+
+        menu.invoke(2)
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/melody"
+        assert list(message.params) == ["classic_lead"]
+        assert window.library_vars["Melody"].get() == "classic_lead"
+
+        # D-05: picking the entry that is already selected sends nothing.
+        menu.invoke(2)
+        sock.settimeout(0.3)
+        with pytest.raises(socket.timeout):
+            sock.recvfrom(4096)
+
+        sock.settimeout(2)
+        menu.invoke(0)
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/melody"
+        assert list(message.params) == ["auto"]
+        assert window.library_vars["Melody"].get() == "Auto"
+
+        # D-04 at the controller.
+        selector.send_initial()
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/melody"
+        assert list(message.params) == ["auto"]
+    finally:
+        sock.close()

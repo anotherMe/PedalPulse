@@ -13,6 +13,9 @@ OSCdef(\\pp_play), /pp/epic <float> (0-100, unclamped) for the EPIC
 energy level (EPIC-01/EPIC-02), validated and applied by
 OSCdef(\\pp_epic), and /pp/volume <float> (0-100, unclamped) for the
 master volume (GUI-03), validated and applied by OSCdef(\\pp_volume).
+Library selections go to /pp/palette, /pp/progression and /pp/melody as one
+OSC string each (a library file stem or auto, GUI-06), validated by the
+engine's ~ppSelect.
 """
 
 from __future__ import annotations
@@ -26,7 +29,8 @@ from pythonosc.udp_client import SimpleUDPClient
 
 
 class OscClient:
-    """Thin wrapper around pythonosc's SimpleUDPClient for /pp/bpm, /pp/play, /pp/epic and /pp/volume sends."""
+    """Thin wrapper around pythonosc's SimpleUDPClient for /pp/bpm, /pp/play, /pp/epic, /pp/volume and the
+    /pp/palette, /pp/progression and /pp/melody sends."""
 
     def __init__(self, host: str = config.OSC_HOST, port: int = config.OSC_PORT) -> None:
         self.host = host
@@ -99,6 +103,21 @@ class OscClient:
             self._client.send_message(config.OSC_VOLUME_ADDRESS, float(volume))
         except (OSError, OverflowError, BuildError) as exc:
             print(f"OscClient: failed to send /pp/volume {volume} to {self.target}: {exc}", file=sys.stderr)
+            return False
+        return True
+
+    def send_selection(self, address: str, name: str) -> bool:
+        """Send `address` with `name` as one OSC string (GUI-06).
+
+        `name` is a library file stem or auto, sent raw -- the engine
+        validates it (~ppSelect) and keeps playing the current file if it
+        refuses. Catches (OSError, OverflowError, BuildError) for the same
+        reasons as send_bpm.
+        """
+        try:
+            self._client.send_message(address, str(name))
+        except (OSError, OverflowError, BuildError) as exc:
+            print(f"OscClient: failed to send {address} {name} to {self.target}: {exc}", file=sys.stderr)
             return False
         return True
 

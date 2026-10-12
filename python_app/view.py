@@ -1,18 +1,21 @@
 """Tk widgets for the PedalPulse control app (GUI-01, GUI-02, GUI-03,
-EPIC-03, D-06, D-12).
+GUI-05, GUI-07, EPIC-03, D-06, D-12).
 
 No OSC import here (D-24) -- this module only builds and wires Tk widgets
-to a BpmController/PlayController/EpicController/VolumeController; it
-never talks to the network directly.
+to a BpmController/PlayController/EpicController/VolumeController and to
+the LibrarySelectors behind the Palette/Progression/Melody dropdown column;
+it never talks to the network directly.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
 import tkinter.font as tkfont
+from collections.abc import Sequence
 
 import config
 from bpm_logic import BpmController, EpicController, PlayController, VolumeController
+from library_logic import LibrarySelector
 
 # D-06 layout: −5 −1 [value] +1 +5. The minus sign is U+2212 MINUS SIGN,
 # not an ASCII hyphen.
@@ -24,7 +27,8 @@ PLAY_LABELS = {True: "Stop", False: "Start"}
 
 class BpmWindow:
     """Compact window: BPM slider, nudge row, zone row, transport row,
-    volume row, status line, On top toggle."""
+    volume row, status line, On top toggle, and to their right a column of
+    library dropdowns (Palette, Progression, Melody)."""
 
     def __init__(
         self,
@@ -35,18 +39,20 @@ class BpmWindow:
         play_controller: PlayController,
         epic_controller: EpicController,
         volume_controller: VolumeController,
+        selector_controllers: Sequence[LibrarySelector],
     ) -> None:
         self.root = root
         self.controller = controller
         self.play_controller = play_controller
         self.epic_controller = epic_controller
         self.volume_controller = volume_controller
+        self.selector_controllers = list(selector_controllers)
 
         root.title("PedalPulse")
         root.resizable(False, False)
 
         container = tk.Frame(root, padx=12, pady=10)
-        container.pack()
+        container.pack(side="left", anchor="n")
 
         self.bpm_var = tk.IntVar(value=controller.value)
 
@@ -156,6 +162,8 @@ class BpmWindow:
         )
         self.on_top_check.pack(pady=(4, 0))
 
+        self._build_library_column(self.selector_controllers)
+
         # D-11: Up/Down +-1, Shift+Up/Down +-5, while keyboard focus is
         # anywhere except the BPM entry (WR-01 fix above gives the entry
         # its own "break" bindings so these root-level shortcuts never
@@ -170,6 +178,55 @@ class BpmWindow:
         self.root.bind("<Shift-Down>", lambda _event: self.handle_nudge_key(-5))
 
         controller.add_listener(self._on_bpm_changed)
+
+    def _build_library_column(self, selectors: Sequence[LibrarySelector]) -> None:
+        """Build the right-hand column of library dropdowns (GUI-05, D-01..D-03).
+
+        One label and one tk.OptionMenu per selector, top to bottom in the
+        given order. Tuple padding goes into pack() only; a widget
+        constructor rejects it. takefocus=0 is set explicitly (GUI-07) so
+        the root arrow-key shortcuts stay on BPM.
+        """
+        self.library_column = tk.Frame(self.root, pady=10)
+        self.library_column.pack(side="left", anchor="n", padx=(0, 12))
+
+        self.library_labels: dict[str, tk.Label] = {}
+        self.library_vars: dict[str, tk.StringVar] = {}
+        self.library_buttons: dict[str, tk.Menubutton] = {}
+        self.library_menus: dict[str, tk.Menu] = {}
+        for selector in selectors:
+            label = tk.Label(self.library_column, text=selector.title, anchor="w")
+            label.pack(fill="x", pady=(0, 2))
+
+            var = tk.StringVar(value=selector.selected)
+            button = tk.OptionMenu(self.library_column, var, selector.selected)
+            button.configure(width=config.LIBRARY_DROPDOWN_WIDTH, anchor="w", takefocus=0)
+            button.pack(fill="x", pady=(0, 10))
+            menu = button["menu"]
+
+            selector.add_listener(var.set)
+            self._refresh_library_menu(selector, var, menu)
+
+            self.library_labels[selector.title] = label
+            self.library_vars[selector.title] = var
+            self.library_buttons[selector.title] = button
+            self.library_menus[selector.title] = menu
+
+    def _refresh_library_menu(self, selector: LibrarySelector, var: tk.StringVar, menu: tk.Menu) -> None:
+        """Rebuild the menu entries from the selector's folder (idempotent).
+
+        Entry labels are the exact file stems (D-06); a pick calls
+        selector.select(n). It never sets var itself: the selector's
+        listener does that only when the choice really changed.
+        """
+        menu.delete(0, "end")
+        for name in selector.options():
+            menu.add_radiobutton(
+                label=name,
+                variable=var,
+                value=name,
+                command=lambda n=name: selector.select(n),
+            )
 
     def _build_zone_row(self, container: tk.Frame, epic_controller: EpicController) -> None:
         """Build the five EPIC zone buttons and the "Zone: <name>" caption (EPIC-03).
