@@ -61,7 +61,7 @@ Requirement-level test map (from research, pending task assignment):
 | GUI-05 | Window shows three labelled dropdowns in order Palette, Progression, Melody, each starting on `Auto`; menu entries equal `options()`; the `postcommand` rebuild is idempotent and picks up a new file | Tk | `.venv/bin/pytest python_app/tests/test_view_tk.py -q` | ✅ extended |
 | GUI-05 | Real library folders list `classic` (plus `classic_lead`, `classic_lead_loud` for melodies) and never `_template` | unit | `.venv/bin/pytest python_app/tests/test_library_logic.py -q` | ✅ exists |
 | GUI-06 | `send_selection` delivers the address plus an OSC string; returns False on `OSError` and on `BuildError`/`OverflowError` without raising | unit | `.venv/bin/pytest python_app/tests/test_osc_client.py -q` | ✅ extended |
-| GUI-06 | Controller: a change sends once, in wire form (`Auto` → `auto`); picking the current item sends and notifies nothing; `send_initial` sends `auto` unconditionally; a failed send never rolls state back; an unknown or vanished name is still sent | unit | `.venv/bin/pytest python_app/tests/test_library_logic.py -q` | ✅ exists |
+| GUI-06 | Controller: a change sends once, in wire form (`Auto` → `auto`); picking the current item sends and notifies nothing; `send_initial` sends `auto` unconditionally; a failed send never rolls state back, and picking the same item again after a failed send resends it (WR-01); a listener that raises never skips the send (WR-02); an unknown or vanished name is still sent | unit | `.venv/bin/pytest python_app/tests/test_library_logic.py -q` | ✅ exists |
 | GUI-06 | Engine ignores an unknown name with a warning and the music keeps playing | already covered engine-side | `bash scripts/check.sh --library-only` (existing `unknown name` check) | ✅ exists |
 | GUI-07 | After invoking a menu entry on each dropdown, `focus_get()` is not a selector, each `takefocus` is `"0"`, and `<Up>` still nudges BPM by 1 (and `<Shift-Down>` by 5) | Tk | `.venv/bin/pytest python_app/tests/test_view_tk.py -q` | ✅ extended |
 | GUI-07 | Existing layout test still passes (`window.scale.master.pack_slaves()` unchanged) | Tk | `.venv/bin/pytest python_app/tests/test_view_tk.py -q` | ✅ exists |
@@ -97,7 +97,7 @@ Requirement-level test map (from research, pending task assignment):
 - [x] Feedback latency < 10s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** validated 2026-10-12 (validate-phase: 0 gaps, 188 tests green)
+**Approval:** validated 2026-10-12 (validate-phase: 0 gaps, 188 tests green). Re-audited 2026-10-12 after the WR-01/WR-02/WR-03 review fixes: 0 gaps, 191 tests green
 
 ## Validation Audit 2026-10-12
 
