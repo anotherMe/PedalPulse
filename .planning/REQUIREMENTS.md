@@ -10,12 +10,12 @@ Requirements for this milestone. Each maps to roadmap phases. Research: `.planni
 
 ### Library and modular engine (LIB)
 
-- [ ] **LIB-01**: User starts the engine exactly as before, from `main.scd`. It loads the core plus library modules from `supercollider/library/`, and with only the `classic` entries selected it sounds like v1.0
-- [ ] **LIB-02**: Each progression, melody style and palette is its own named `.scd` file under `library/progressions/`, `library/melodies/` or `library/palettes/`. The file name is its identity in the engine, the GUI and OSC
-- [ ] **LIB-03**: New variations are added as new files and existing files are never overwritten, so every earlier variation can still be selected
-- [ ] **LIB-04**: A broken or invalid library file never stops the music. The engine logs the error and keeps or falls back to `classic`
-- [ ] **LIB-05**: A library file added or changed while the engine runs can be selected or reloaded without restarting the engine or interrupting playback
-- [ ] **LIB-06**: An automated check validates every library file (loads, correct shape, voices respect limiter/Stop/gate) and runs with the smoke suite
+- [x] **LIB-01**: User starts the engine exactly as before, from `main.scd`. It loads the core plus library modules from `supercollider/library/`, and with only the `classic` entries selected it sounds like v1.0
+- [x] **LIB-02**: Each progression, melody style and palette is its own named `.scd` file under `library/progressions/`, `library/melodies/` or `library/palettes/`. The file name is its identity in the engine, the GUI and OSC
+- [x] **LIB-03**: New variations are added as new files and existing files are never overwritten, so every earlier variation can still be selected
+- [x] **LIB-04**: A broken or invalid library file never stops the music. The engine logs the error and keeps or falls back to `classic`
+- [x] **LIB-05**: A library file added or changed while the engine runs can be selected or reloaded without restarting the engine or interrupting playback
+- [x] **LIB-06**: An automated check validates every library file (loads, correct shape, voices respect limiter/Stop/gate) and runs with the smoke suite
 
 ### Harmony (HARM)
 
@@ -58,7 +58,7 @@ Requirements for this milestone. Each maps to roadmap phases. Research: `.planni
 ### Stability (ENG)
 
 - [ ] **ENG-03**: (carried over from v1.0) 60+ minutes of play without dropouts, node growth or CPU growth, with the full v2.0 engine running next to Zwift
-- [ ] **ENG-05**: Re-evaluating `main.scd` or a module never stacks routines or leaks nodes, and Stop silences every new layer and source
+- [x] **ENG-05**: Re-evaluating `main.scd` or a module never stacks routines or leaks nodes, and Stop silences every new layer and source
 
 ## Future Requirements
 
@@ -94,12 +94,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIB-01 | Phase 4 | Pending |
-| LIB-02 | Phase 4 | Pending |
-| LIB-03 | Phase 4 | Pending |
-| LIB-04 | Phase 4 | Pending |
-| LIB-05 | Phase 4 | Pending |
-| LIB-06 | Phase 4 | Pending |
+| LIB-01 | Phase 4 | Complete |
+| LIB-02 | Phase 4 | Complete |
+| LIB-03 | Phase 4 | Complete |
+| LIB-04 | Phase 4 | Complete |
+| LIB-05 | Phase 4 | Complete |
+| LIB-06 | Phase 4 | Complete |
 | HARM-01 | Phase 6 | Pending |
 | HARM-02 | Phase 6 | Pending |
 | HARM-03 | Phase 6 | Pending |
@@ -121,7 +121,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GUI-06 | Phase 5 | Pending |
 | GUI-07 | Phase 5 | Pending |
 | ENG-03 | Phase 9 | Pending |
-| ENG-05 | Phase 4 | Pending |
+| ENG-05 | Phase 4 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 28 total

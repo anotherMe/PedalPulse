@@ -32,7 +32,7 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
 - Integer phases (4, 5, 6): planned milestone work, continuing from v1.0
 - Decimal phases (5.1, 5.2): urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 4: Modular Engine & Variation Library** - The engine is split into a core plus `supercollider/library/` modules with `classic` entries and still sounds exactly like v1.0. Adds safe loading, fallback, reload by name and a library check
+- [x] **Phase 4: Modular Engine & Variation Library** - The engine is split into a core plus `supercollider/library/` modules with `classic` entries and still sounds exactly like v1.0. Adds safe loading, fallback, reload by name and a library check (completed 2026-10-12)
 - [ ] **Phase 5: Library Selectors in the GUI** - Palette, Progression and Melody selectors list Auto plus every library file on disk and send the chosen name over send-only OSC
 - [ ] **Phase 6: Shared Harmony & Progressions** - One chord progression drives bass, arp and pad together, with voice-led pads and at least 6 selectable progressions
 - [ ] **Phase 7: Sound Palettes** - At least 5 loudness-matched sound palettes that rotate on their own in Auto and lock when picked by name
@@ -54,7 +54,7 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
   4. One command runs the existing smoke suite plus a new library check. The check validates every library file (it loads, has the right shape, and its voices go through the limiter and obey Stop and gate) and reports pass or fail
   5. Re-evaluating `main.scd` or a module several times leaves exactly one copy of every layer playing, with no extra nodes or routines, and Stop silences every layer and source
 
-**Plans:** 6/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -160,7 +160,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 1. Tempo Link Skeleton | v1.0 | 3/3 | Complete | 2026-10-09 |
 | 2. Full Groove & Smooth Tempo | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 3. EPIC Zones & Volume | v1.0 | 4/4 | Complete | 2026-10-09 |
-| 4. Modular Engine & Variation Library | v2.0 | 6/6 | In Progress | - |
+| 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
 | 5. Library Selectors in the GUI | v2.0 | 0/TBD | Not started | - |
 | 6. Shared Harmony & Progressions | v2.0 | 0/TBD | Not started | - |
 | 7. Sound Palettes | v2.0 | 0/TBD | Not started | - |

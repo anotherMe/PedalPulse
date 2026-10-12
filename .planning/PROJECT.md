@@ -46,12 +46,15 @@ All shipped in v1.0:
 - ✓ Tkinter GUI with five EPIC zone preset buttons (Recovery 10 / Endurance 30 / Tempo 50 / Threshold 75 / VO2 100) and a visible selected-zone highlight — Phase 3
 - ✓ Master volume slider in the GUI (`/pp/volume <float 0–100>`, squared taper, default 80); gain applied before the limiter, so VO2 at full volume never clips — Phase 3
 
+Shipped in v2.0:
+
+- ✓ Engine core (`supercollider/core/` loader, renderer, validator) split from musical content in `supercollider/library/`; the split plays the shipped groove note for note (0 parity mismatches) and re-evaluating never stacks layers or routines — Phase 4
+- ✓ Named, never-overwritten library files for progressions, melodies and palettes, selectable live by name over OSC (`/pp/progression`, `/pp/palette`, `/pp/melody`, loopback-only) from the next bar; a broken file is refused and the last good copy keeps playing; `bash scripts/check.sh` guards, validates every file and runs the smoke suite — Phase 4
+
 ### Active
 
 Milestone v2.0 Living Music (detailed REQ-IDs in REQUIREMENTS.md):
 
-- [ ] Engine core split from musical content; content modules load from `supercollider/library/` and can be re-evaluated without stopping the music
-- [ ] Named, never-overwritten library files for progressions, melody styles and sound palettes
 - [ ] Shared chord progression followed by all pitched layers
 - [ ] Rule-based, evolving melodies instead of fixed note lists
 - [ ] Multi-timescale song structure (fills, motif changes, breakdown/build/drop sections)
@@ -115,11 +118,13 @@ Milestone v2.0 Living Music (detailed REQ-IDs in REQUIREMENTS.md):
 | Persistent FX/smoother synths have no envelope and are freed by the teardown block | Deliberate exception to the `doneAction: 2` rule, which still applies to per-note voices | ✓ Good — Phase 3 (leak-free re-evaluation checked headlessly) |
 | Re-evaluating `main.scd` keeps the transport state (`~ppWasPlaying = ~ppPlaying ? true`); only the first-ever evaluation autostarts | Milestone audit W1: re-evaluating after Stop used to restart the music while the GUI still showed "Start" | ✓ Good — quick task 261010-hyl (smoke checks for autostart / stays stopped / keeps playing) |
 | No resync after an engine restart (the GUI keeps its last values, the engine resets to defaults) | Follows from the send-only design; restarting the app resyncs | ⚠️ Revisit — milestone audit W2, accepted as tech debt in v1.0 |
-| v2.0: core + modules layout instead of one big .scd or one self-contained file per style | One big file grows unmanageable; per-style full patches duplicate the engine and stop the music when switching | — Pending |
-| v2.0: variation library lives in SuperCollider as named `.scd` files under `supercollider/library/<category>/`; new experiments are new files, never edits of old ones | The rider must be able to switch back to any earlier experiment; musical content is SC code anyway; git keeps history | — Pending |
+| v2.0: core + modules layout instead of one big .scd or one self-contained file per style | One big file grows unmanageable; per-style full patches duplicate the engine and stop the music when switching | ✓ Good — Phase 4 (parity 0 mismatches; UAT: default startup sounds like v1.0) |
+| v2.0: variation library lives in SuperCollider as named `.scd` files under `supercollider/library/<category>/`; new experiments are new files, never edits of old ones | The rider must be able to switch back to any earlier experiment; musical content is SC code anyway; git keeps history | ✓ Good — Phase 4 (check.sh guard; `classic_lead_loud` added as a new file and switched to live) |
 | v2.0: GUI builds its selector lists by reading the library folder on disk; selections are sent by name over OSC | Keeps the app send-only (no engine → GUI channel) and needs no separate Python config to keep in sync | — Pending |
 | v2.0: palettes rotate automatically, and a GUI selector can lock one | Variety by default on long rides, plus a way to audition and name what to give feedback on | — Pending |
 | v2.0: EPIC drives arrangement density as well as brightness/energy | Recovery should feel sparse and VO2 full-on | — Pending |
+| v2.0: a new variation's change must be clearly audible in the full mix | Phase 4 UAT: `classic_lead` (octave-up lead 12 dB under the arp) could not be heard; `classic_lead_loud` at the arp's level could | ✓ Good — Phase 4 |
+| v2.0: library-hardening review findings WR-01 (no upper bounds on row values) and WR-02 (refused palette leaves SynthDefs; fallback does not restore classic voices) deferred | Library files are written by Claude and checked before a ride; accepted by the rider in 04-UAT | ⚠️ Revisit — before palettes multiply (Phase 7) |
 
 ## Evolution
 
@@ -139,4 +144,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-11 after starting milestone v2.0*
+*Last updated: 2026-10-12 after Phase 4*
