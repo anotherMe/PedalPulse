@@ -124,3 +124,126 @@ def test_library_root_is_independent_of_cwd(tmp_path, monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(config)
+
+
+# --- LibrarySelector contract (GUI-06) -------------------------------------------
+
+
+def _make_selector(folder, **overrides):
+    sent = []
+    kwargs = dict(send=sent.append)
+    kwargs.update(overrides)
+    selector = LibrarySelector("Melody", folder, **kwargs)
+    return selector, sent
+
+
+def _folder_with(tmp_path, *stems):
+    for stem in stems:
+        _touch(tmp_path, stem + ".scd")
+    return tmp_path
+
+
+def test_starts_on_auto_and_sends_nothing(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
+
+    assert selector.selected == "Auto"
+    assert selector.title == "Melody"
+    assert sent == []
+
+
+def test_options_rescan_on_every_call(tmp_path):
+    selector, _sent = _make_selector(_folder_with(tmp_path, "classic"))
+    assert selector.options() == ["Auto", "classic"]
+
+    _touch(tmp_path, "zz_try.scd")
+    assert selector.options()[-1] == "zz_try"
+
+    (tmp_path / "zz_try.scd").unlink()
+    assert selector.options() == ["Auto", "classic"]
+
+
+def test_change_sends_once_and_same_pick_sends_nothing(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic", "classic_lead"))
+    heard = []
+    selector.add_listener(heard.append)
+
+    selector.select("classic_lead")
+    assert sent == ["classic_lead"]
+    assert selector.selected == "classic_lead"
+    assert heard == ["classic_lead"]
+
+    selector.select("classic_lead")
+    assert sent == ["classic_lead"]
+    assert heard == ["classic_lead"]
+
+    selector.select("Auto")
+    assert sent == ["classic_lead", "auto"]
+
+
+def test_listener_called_before_send(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
+    seen = []
+    selector.add_listener(lambda _label: seen.append(len(sent)))
+
+    selector.select("classic")
+
+    assert seen == [0]
+    assert sent == ["classic"]
+
+
+def test_send_initial_sends_wire_name_without_notifying(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
+    heard = []
+    selector.add_listener(heard.append)
+
+    selector.send_initial()
+    assert sent == ["auto"]
+
+    selector.select("classic")
+    heard.clear()
+    selector.send_initial()
+    assert sent == ["auto", "classic", "classic"]
+    assert heard == []
+
+
+def test_failed_send_keeps_the_selection(tmp_path):
+    selector, _sent = _make_selector(_folder_with(tmp_path, "classic"), send=lambda _name: False)
+
+    selector.select("classic")
+
+    assert selector.selected == "classic"
+
+
+def test_name_not_on_disk_is_still_sent(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
+
+    selector.select("not_on_disk")
+
+    assert sent == ["not_on_disk"]
+
+
+def test_empty_or_non_string_pick_is_ignored(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
+    heard = []
+    selector.add_listener(heard.append)
+
+    selector.select("")
+    selector.select(None)
+
+    assert sent == []
+    assert heard == []
+    assert selector.selected == "Auto"
+
+
+def test_to_wire_maps_only_auto():
+    from library_logic import to_wire
+
+    assert to_wire("Auto") == "auto"
+    assert to_wire("classic") == "classic"
+    assert to_wire("auto_lead") == "auto_lead"
+
+
+def test_custom_scan_is_used(tmp_path):
+    selector, _sent = _make_selector(tmp_path, scan=lambda _folder: ["classic", "x1"])
+
+    assert selector.options() == ["Auto", "classic", "x1"]

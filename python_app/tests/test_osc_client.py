@@ -8,8 +8,10 @@ from unittest.mock import patch
 import pytest
 from pythonosc.osc_message import OscMessage
 
+import config
 import osc_client
 from osc_client import OscClient
+from pythonosc.osc_message_builder import BuildError
 
 
 def _bound_udp_socket():
@@ -388,3 +390,58 @@ def test_cli_main_sends_epic_then_volume_in_order():
         assert list(message2.params) == [100.0]
     finally:
         sock.close()
+
+
+# --- send_selection (GUI-06) -----------------------------------------------------
+
+
+def test_send_selection_delivers_osc_string_over_real_socket():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        for _title, _folder, address in config.LIBRARY_CATEGORIES:
+            assert client.send_selection(address, "classic_lead") is True
+            datagram, _addr = sock.recvfrom(4096)
+            message = OscMessage(datagram)
+            assert message.address == address
+            assert list(message.params) == ["classic_lead"]
+            assert type(message.params[0]) is str
+    finally:
+        sock.close()
+
+
+def test_send_selection_sends_auto():
+    sock = _bound_udp_socket()
+    try:
+        port = sock.getsockname()[1]
+        client = OscClient(host="127.0.0.1", port=port)
+
+        assert client.send_selection("/pp/melody", "auto") is True
+        datagram, _addr = sock.recvfrom(4096)
+        message = OscMessage(datagram)
+        assert message.address == "/pp/melody"
+        assert list(message.params) == ["auto"]
+    finally:
+        sock.close()
+
+
+def test_send_selection_to_unused_port_returns_true_without_raising():
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe.bind(("127.0.0.1", 0))
+    unused_port = probe.getsockname()[1]
+    probe.close()
+
+    client = OscClient(host="127.0.0.1", port=unused_port)
+    assert client.send_selection("/pp/melody", "classic") is True
+
+
+@pytest.mark.parametrize("exc", [OSError("boom"), OverflowError("big"), BuildError("bad")])
+def test_send_selection_returns_false_on_send_errors(exc, capsys):
+    client = OscClient(host="127.0.0.1", port=57120)
+    with patch.object(client._client, "send_message", side_effect=exc):
+        assert client.send_selection("/pp/melody", "classic") is False
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "OscClient: failed to send /pp/melody classic" in err
