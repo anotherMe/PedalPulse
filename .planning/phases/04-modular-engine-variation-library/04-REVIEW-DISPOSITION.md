@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: deferred
     title: "Row validation has no upper bounds (note range, legato, row count), so a \"valid\" bar can still disturb the engine"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: deferred
     title: "A refused (or fallen-back) palette leaves its SynthDefs behind, and the fallback to classic does not restore classic's voices"
   - id: WR-03
     severity: warning
@@ -51,7 +51,7 @@ findings:
     severity: info
     disposition: open
     title: "Minor shell and logging issues"
-open: 12
+open: 10
 total: 12
 recorded: 2026-10-11T20:36:12.854Z
 ---
@@ -60,8 +60,8 @@ recorded: 2026-10-11T20:36:12.854Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
+| WR-01 | warning | deferred | Accepted by rider in 04-UAT test 5 (2026-10-12) as hardening for a later phase |
+| WR-02 | warning | deferred | Accepted by rider in 04-UAT test 5 (2026-10-12) as hardening for a later phase |
 | WR-03 | warning | open | - |
 | WR-04 | warning | open | - |
 | WR-05 | warning | open | - |
