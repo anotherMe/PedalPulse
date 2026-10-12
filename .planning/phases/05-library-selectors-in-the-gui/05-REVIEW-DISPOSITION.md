@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "README lists the library contents incorrectly"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`--hidden` without `--exit-after` starts an app nobody can see or close"
   - id: IN-01
     severity: info
@@ -31,17 +31,17 @@ findings:
     severity: warning
     disposition: fixed
     title: "`test_main_launch` opens a real, visible window and steals focus (twice per run)"
-open: 6
+open: 4
 total: 7
-recorded: 2026-10-12T13:20:28.691Z
+recorded: 2026-10-12T13:39:51.463Z
 ---
 
 # Phase 05: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
+| WR-01 | warning | fixed | 05-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 05-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
