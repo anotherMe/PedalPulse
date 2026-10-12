@@ -2,23 +2,18 @@
 phase: 05-library-selectors-in-the-gui
 reviewed: 2026-10-12T00:00:00Z
 depth: standard
-files_reviewed: 10
+files_reviewed: 5
 files_reviewed_list:
-  - python_app/config.py
   - python_app/library_logic.py
   - python_app/main.py
-  - python_app/osc_client.py
   - python_app/tests/test_library_logic.py
   - python_app/tests/test_main_launch.py
-  - python_app/tests/test_osc_client.py
-  - python_app/tests/test_view_tk.py
-  - python_app/view.py
   - supercollider/library/README.md
 findings:
   critical: 0
-  warning: 3
+  warning: 2
   info: 4
-  total: 7
+  total: 6
 status: issues_found
 ---
 
@@ -26,99 +21,73 @@ status: issues_found
 
 **Reviewed:** 2026-10-12
 **Depth:** standard
-**Files Reviewed:** 10
+**Files Reviewed:** 5
 **Status:** issues_found
 
 ## Summary
 
-The phase adds `scan_library`, `LibrarySelector`, `OscClient.send_selection`, the three-dropdown column in `view.py` and the rebuild-on-open post command, plus tests. I found no security vulnerabilities and no crash-level defects.
+I reviewed the library selector logic, the `main.py` wiring (including the new `--hidden` flag), the two test modules and the library README. I also read `config.py`, `osc_client.py`, the `view.py` dropdown code and the engine's `~ppStemValid` in `supercollider/core/loader.scd`, to check the cross-module claims.
 
-Checks that held up:
-- `scan_library` uses `fullmatch`, so a trailing newline is rejected.
-- The scan filter mirrors the engine's `~ppStemValid`, so no path outside the folder can be built from a name.
-- Menu rebuild goes through `Menu.delete`, which also frees the old Tcl commands.
-- The default-argument lambda captures are correct.
-- 50 tests in `test_library_logic.py` and `test_osc_client.py` pass (I did not run the Tk tests).
+The retry state machine in `LibrarySelector.select` holds up. I traced these cases:
+- A failed send, then a re-pick.
+- A listener that raises.
+- A send that raises.
+- A failed `send_initial`.
+- A switch back to the previously selected name after a failed send.
 
-The real concerns are about state divergence between the GUI and the engine when a send is lost, and a few fragile or duplicated spots.
+In each case `_selected` and `_last_send_ok` stay consistent and D-05 is preserved. `_STEM_RE` with `fullmatch` matches the engine's rule exactly, including the 64-character limit, the leading `_` and the reserved `auto`. No security issues were found. The folder is fixed in config, no path is built from user input, and the engine validates every name.
+
+The remaining problems are one stale piece of documentation, one footgun in the new `--hidden` flag, and some minor accuracy and test-robustness points.
 
 ## Warnings
 
-### WR-01: A lost send leaves the dropdown out of sync with the engine, and the same pick cannot be retried
+### WR-01: README lists the library contents incorrectly
 
-**File:** `python_app/library_logic.py:107-112`
-**Issue:** `select()` sets `self._selected` and notifies listeners (the Tk var) before sending, and discards the send's return value. `OscClient.send_selection` returns `False` on `OSError`, `OverflowError` or `BuildError`, but nothing reads it. Two cases follow.
-- Failed send: the button shows `classic_lead` while the engine never received it. The D-05 guard (`label == self._selected`) then makes re-picking that name a silent no-op, so the rider can only recover by picking a different name and then picking it back.
-- Engine restart: the project's lifecycle has the user starting SuperCollider separately. The engine boots on `auto`, but the app's dropdown and `_selected` keep the old choice. Re-picking the visible name does nothing.
+**File:** `supercollider/library/README.md:15-17`
+**Issue:** The README says "Right now the library holds `progressions/classic`, `melodies/classic`, `melodies/classic_lead` ... and `palettes/classic`." The tree also contains `melodies/classic_lead_loud.scd`. `test_real_library_folders` asserts that file exists, so it is a committed fact. A rider reading the README will not know the third melody exists, and the dropdown will show a name the docs never mention. Because of the "never edit a committed file" rule, this README is the only record of what each variation is, so it needs to stay complete.
+**Fix:** Add `melodies/classic_lead_loud` (with a one-line description of how it differs from `classic_lead`) to the sentence, or replace the hard-coded list with "see the `desc` line in each file". The second option avoids the list going stale again.
 
-`test_failed_send_keeps_the_selection` pins the first case as intended, but it only asserts the state, not that recovery is possible. The README documents the "pick another and back" workaround, so this is a known trade-off, but it makes the dropdown a lie after any dropped send.
-**Fix:** Either make `send` report failure and revert, or allow a re-pick to retry after a failed send:
+### WR-02: `--hidden` without `--exit-after` starts an app nobody can see or close
+
+**File:** `python_app/main.py:85-91`
+**Issue:** `--hidden` calls `root.withdraw()` and then `mainloop()`. If `--exit-after` is 0 (the default), nothing ever destroys the root. The result is an invisible Tk process with no Dock window to close, so the user must kill it from outside. The flag's help text says it is for automated checks, but nothing enforces pairing it with `--exit-after`. A negative `--exit-after` is also silently treated as "never", because only `> 0` is checked.
+**Fix:** Reject the combination at parse time:
 ```python
-def select(self, label):
-    if not isinstance(label, str) or not label:
-        return
-    if label == self._selected and self._last_send_ok:
-        return
-    self._selected = label
-    for fn in self._listeners:
-        fn(label)
-    self._last_send_ok = self._send(to_wire(label)) is not False
+args = parser.parse_args(argv)
+if args.hidden and args.exit_after <= 0:
+    parser.error("--hidden requires --exit-after > 0 (otherwise the window can never be closed)")
 ```
-At minimum, add a README line about re-syncing after an engine restart.
-
-### WR-02: A listener exception skips the send and leaves state half-applied
-
-**File:** `python_app/library_logic.py:109-112`
-**Issue:** `_selected` is assigned, then listeners run, then the send happens. The listener in `view.py` is `var.set`, which can raise `tkinter.TclError` (for example if the window is being torn down during a pick). The exception escapes `select()` before `self._send(...)`. `_selected` has already changed, so the selection is recorded but never sent, and WR-01's no-op-on-repeat guard then hides it. `EpicController` has the same listener-then-send shape, but there the wire value is the more important output.
-**Fix:** Send first and then notify (the spec D-05 order may be the reason for listener-first; if so, wrap the listeners):
-```python
-self._selected = label
-try:
-    for fn in self._listeners:
-        fn(label)
-finally:
-    self._send(to_wire(label))
-```
-
-### WR-03: `test_main_launch` opens a real, visible window and steals focus (twice per run)
-
-**File:** `python_app/tests/test_main_launch.py:33-38`
-**Issue:** The test runs the real `main.py` in a subprocess, which builds an on-screen Tk root on the user's display. `test_view_tk.py` deliberately places its roots off-screen (`geometry("+2000+2000")`) and documents why, but this subprocess does not. Each run flashes a window for about 300 ms, twice, and can steal keyboard focus from whatever the developer is typing in. On a headless or CI box it fails with a `TclError`, and that failure is indistinguishable from a regression because the assertion is `returncode == 0`. There is also no skip when no display is available.
-**Fix:** Add a skip guard for display-less runs, or support an env/flag in `main.py` to start withdrawn or off-screen. Hiding the window needs a `--exit-after`-style switch such as `--geometry +2000+2000`. Alternatively, skip when Tk cannot initialise:
-```python
-@pytest.fixture(scope="module", autouse=True)
-def _need_display():
-    try:
-        tk.Tk().destroy()
-    except tk.TclError:
-        pytest.skip("no display for the Tk launch test")
-```
+Alternatively, give `--exit-after` `type=` a validator that rejects negative values.
 
 ## Info
 
-### IN-01: Redundant `.startswith(".")` check in `scan_library`
+### IN-01: `scan_library` lists symlinks the engine will refuse
+
+**File:** `python_app/library_logic.py:25-31, 45-50`
+**Issue:** The docstring says only files "whose stem the engine would accept" are listed. `entry.is_file()` follows symlinks, but the engine's `~ppLibContained` (loader.scd:57-62) resolves the real path and rejects a symlink pointing outside the library. A symlink such as `evil.scd -> /elsewhere/x.scd` is therefore listed and selectable, and picking it only produces an engine ERROR line. This is harmless because the engine is the validator, but the docstring over-claims.
+**Fix:** Either skip `entry.is_symlink()` entries, or soften the docstring to "whose stem the engine would accept; the engine also checks that the file stays inside the library".
+
+### IN-02: Redundant checks in `scan_library`
 
 **File:** `python_app/library_logic.py:40`
-**Issue:** `_STEM_RE` requires the first character to be `[a-z0-9]`, so any name starting with `.` already fails `fullmatch` at line 43. The docstring says hidden files are skipped, but the regex does that. The extra check is dead logic.
-**Fix:** Drop `or name.startswith(".")`, or keep it with a comment saying it is a fast path.
+**Issue:** `name.startswith(".")` is fully covered by `_STEM_RE`, because the first character must be `[a-z0-9]`. A name that fails the `.scd` suffix check is already handled by the stem slice. The extra condition is dead weight and suggests the regex is not trusted.
+**Fix:** Drop `or name.startswith(".")`, or add a comment saying the check is only there to skip files before the slice.
 
-### IN-02: Duplicate helper in `test_view_tk.py`
+### IN-03: README sort-order wording is looser than the code
 
-**File:** `python_app/tests/test_view_tk.py:506-507` and `659-660`
-**Issue:** `_menu_labels` and `_labels` are identical. Both also raise `TypeError` on an empty menu, because `menu.index("end")` returns `None`; this is currently masked since "Auto" is always present.
-**Fix:** Keep one helper and use `(menu.index("end") or -1) + 1`, or handle `None`.
+**File:** `supercollider/library/README.md:39-41`
+**Issue:** The README says the rest are listed "from A to Z". The code uses code-point order, so digits sort before `_`, and `_` sorts before letters. `classic2` therefore comes before `classic_lead`, as the test asserts. This is unlikely to confuse anyone, but it is not strictly what the README says.
+**Fix:** Say "in alphabetical order by file name (digits first)".
 
-### IN-03: Fragile layout assertion
+### IN-04: Launch test hard-codes default values and has fragile skip logic
 
-**File:** `python_app/tests/test_view_tk.py:589`
-**Issue:** `tk_root.winfo_reqheight() == old_column.winfo_reqheight()` holds only while the library column stays shorter than the controls column. This depends on fonts and theme, and a taller font on another Mac could break it. Equality is the wrong shape for "the column adds width, not height".
-**Fix:** Assert `<=` on the library column's height against the old column's, which states the intent directly.
-
-### IN-04: README is stale and contradicts the no-edit rule
-
-**File:** `supercollider/library/README.md:15-17, 53-55`
-**Issue:** This phase touched the README, but the "Right now the library holds" list still omits `melodies/classic_lead_loud`. That file is committed in `bd04c46`, and `test_real_library_folders` asserts it appears in the dropdown. Lines 53-55 also say "To hear a file again after you changed it, pick another name and then pick it back", while "The one rule" (line 21) says never to edit a committed file. The sentence is only valid for uncommitted work, which the README doesn't say.
-**Fix:** Add `classic_lead_loud` to the list. Reword line 54 to "a file you are still working on (not yet committed)".
+**File:** `python_app/tests/test_main_launch.py:21-29, 34-43`
+**Issue:**
+- `EXPECTED` repeats the defaults `120.0`, `10.0` and `80.0`, and the `/pp/...` addresses, instead of deriving them from `config`. Changing a default in `config.py` will break this test with no hint of why. If the duplication is intentional, as an independent check of the wire format, a comment should say so.
+- `_display_available` runs `subprocess.run(..., timeout=30)` without catching `TimeoutExpired`. A hung Tk probe errors the whole module instead of skipping.
+- The probe also skips when `import tkinter` itself is broken, which hides the Tk-compatibility regression that `main.py`'s gate exists to catch.
+- Nothing checks that `--hidden` really withdraws the window; the test only checks that the process exits cleanly.
+**Fix:** Derive the numbers from `config.BPM_DEFAULT` and the like (or comment the duplication). Wrap the probe in `try/except subprocess.TimeoutExpired: return False`. Distinguish an import failure from a display failure in the probe.
 
 ---
 
