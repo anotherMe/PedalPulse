@@ -9,28 +9,45 @@ picked and never second-guesses it.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Callable
 
 import config
 
+# The engine's name rule (~ppStemValid in supercollider/core/loader.scd): 1-64
+# characters of a-z, 0-9 and _, not starting with _. Always use fullmatch:
+# a regex with $ would also accept a trailing newline.
+_STEM_RE = re.compile(r"[a-z0-9][a-z0-9_]{0,63}")
+
 
 def scan_library(folder: Path) -> list[str]:
     """Return the file stems of the .scd files in `folder` (GUI-05).
 
-    `classic` comes first when present, the rest follow in A-Z order. Names
-    starting with "." or "_" are skipped (the _template file is not a
-    variation). A missing, unreadable or non-folder path gives []; this
-    function never raises.
+    Only regular .scd files whose stem the engine would accept are listed:
+    hidden files, _template, auto, odd names and folders are skipped.
+    `classic` comes first when present, the rest follow in code-point order.
+    A missing, unreadable or non-folder path gives []; this function never
+    raises and never writes.
     """
     try:
-        entries = [entry.name for entry in Path(folder).iterdir()]
+        entries = list(Path(folder).iterdir())
     except OSError:
         return []
     stems = set()
-    for name in entries:
-        if name.endswith(".scd") and not name.startswith((".", "_")):
-            stems.add(name[: -len(".scd")])
+    for entry in entries:
+        name = entry.name
+        if not name.endswith(".scd") or name.startswith("."):
+            continue
+        stem = name[: -len(".scd")]
+        if not _STEM_RE.fullmatch(stem) or stem == config.AUTO_NAME:
+            continue
+        try:
+            if not entry.is_file():
+                continue
+        except OSError:
+            continue
+        stems.add(stem)
     first = [config.LIBRARY_FIRST_STEM] if config.LIBRARY_FIRST_STEM in stems else []
     rest = sorted(stems - set(first))
     return first + rest
