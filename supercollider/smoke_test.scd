@@ -25,8 +25,10 @@ var sendSel, engineCounts, compareCounts, reloadMain, waitLeadFlowing, layersSta
 
 // Watchdog first, in case anything below hangs. Raised from 240 to 300s:
 // Phase 3's EPIC checks wait out the 1.5s EPIC lag several times (glide
-// up/down/retarget, clamp float settle, fx headroom, re-evaluation).
-SystemClock.sched(300, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
+// up/down/retarget, clamp float settle, fx headroom, re-evaluation). Raised
+// again from 300 to 360s: Phase 6 adds the progression Stop/Start and
+// re-evaluation checks.
+SystemClock.sched(360, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
 
 // sclang reports a relative nowExecutingPath when given a relative path
 // (verified during planning), so resolve to an absolute path first.
@@ -2184,6 +2186,216 @@ fork({
 		if (waitSel.(\melodies, \classic, 3).not) {
 			fail.("stop silences every layer", "classic was never re-selected (selection %)".format(~ppSel[\melodies]));
 		};
+	}.value;
+
+	// --- progression stop and start (Phase 6, HARM-01, ENG-05, T-06-11): with a
+	// non-classic progression really playing, Stop releases every voice
+	// including a held pad chord, no layer renders another bar, and a Start
+	// begins a NEW harmony run on the progression's first chord (Am for
+	// anthem). Non-vacuous: anthem has to be the playing cycle and the bass has
+	// to be sounding before Stop. ---
+	{
+		var left = nil, elapsed = 0, snapBefore, snapAfter, sigBefore, sigNow;
+		var log, bassStart, rec, entry, nameNow;
+
+		sendSel.('/pp/progression', 'anthem');
+		if (waitSel.(\progressions, \anthem, 3).not) {
+			fail.("progression stop and start", "anthem was never selected (selection %)".format(~ppSel[\progressions]));
+		};
+		sendSel.('/pp/melody', 'classic_lead');
+		if (waitSel.(\melodies, \classic_lead, 3).not) {
+			fail.("progression stop and start", "classic_lead was never selected (selection %)".format(~ppSel[\melodies]));
+		};
+		if (layersStarted.(8).not) {
+			fail.("progression stop and start", "precondition: the layers never started playing");
+		};
+		// anthem takes over at the end of the cycle that is playing.
+		while ({
+			log = ~ppHarmCycleLog.value;
+			(log.isEmpty or: { log.last[\stem] != \anthem }) and: { elapsed < (~clock.beatDur * 24) }
+		}) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		log = ~ppHarmCycleLog.value;
+		if (log.isEmpty or: { log.last[\stem] != \anthem }) {
+			fail.("progression stop and start", "anthem never became the playing progression (cycle log %)".format(log.last));
+		};
+		bassStart = roleSnapshot.value[\bass];
+		elapsed = 0;
+		while ({ (roleSnapshot.value[\bass] <= bassStart) and: { elapsed < (~clock.beatDur * 12) } }) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		if (roleSnapshot.value[\bass] <= bassStart) {
+			fail.("progression stop and start", "precondition: the bass never rendered a note on anthem");
+		};
+		sigBefore = ~ppHarm[\sig];
+		if (instrChildCount.value == 0) {
+			fail.("progression stop and start", "precondition: no instrument nodes are sounding before Stop");
+		};
+
+		sendPlay.(0);
+		if (waitForPlaying.(false, 3).not) {
+			fail.("progression stop and start", "/pp/play 0 did not stop the engine within 3s");
+		};
+		elapsed = 0;
+		while ({ left != 0 and: { elapsed < 2.5 } }) {
+			left = instrChildCount.value;
+			if (left != 0) {
+				0.1.wait;
+				elapsed = elapsed + 0.1;
+			};
+		};
+		if (left != 0) {
+			fail.("progression stop and start", "instrument group still has % children 2.5 s after stop (a held pad was not released)".format(left));
+		};
+		snapBefore = roleSnapshot.value;
+		(~clock.beatDur * 8).wait;
+		snapAfter = roleSnapshot.value;
+		snapBefore.keysValuesDo { |r, n|
+			if (snapAfter[r] != n) {
+				fail.("progression stop and start", "role % rendered another bar after Stop (% -> %)".format(r, n, snapAfter[r]));
+			};
+		};
+		~ppLayers.do { |n|
+			if (Pbindef(n).isPlaying) {
+				fail.("progression stop and start", "Pbindef(%) is still playing after Stop".format(n));
+			};
+		};
+		if (instrChildCount.value != 0) {
+			fail.("progression stop and start", "instrument nodes appeared after Stop");
+		};
+
+		sendPlay.(1);
+		if (waitForPlaying.(true, 3).not) {
+			fail.("progression stop and start", "/pp/play 1 did not restart the engine within 3s");
+		};
+		if (layersStarted.(8).not) {
+			fail.("progression stop and start", "the layers never started playing after Start");
+		};
+		// The first bar of the new run is planned when its first note renders.
+		elapsed = 0;
+		while ({ ~ppHarmCycleLog.value.isEmpty and: { elapsed < (~clock.beatDur * 10) } }) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		log = ~ppHarmCycleLog.value;
+		if (log.isEmpty) {
+			fail.("progression stop and start", "no harmony run began after Start");
+		};
+		sigNow = ~ppHarm[\sig];
+		if ((sigNow[0] === sigBefore[0]) and: { sigNow[1] == sigBefore[1] }) {
+			fail.("progression stop and start", "Start reused the old harmony run (signature % unchanged)".format(sigNow));
+		};
+		rec = log.first;
+		if (rec[\stem] != \anthem) {
+			fail.("progression stop and start", "the new run began on % instead of anthem".format(rec[\stem]));
+		};
+		entry = ~ppHarmonyEntry.(rec[\start]);
+		if (entry.isNil) {
+			fail.("progression stop and start", "no harmony entry for the new run's first bar %".format(rec[\start]));
+		};
+		nameNow = entry[\chord][\name];
+		if ((entry[\cycleBar] != 0) or: { nameNow != "Am" }) {
+			fail.("progression stop and start", "the new run's first bar is cycle bar % on chord %, expected bar 0 on Am".format(entry[\cycleBar], nameNow));
+		};
+		checkOk.("progression stop and start");
+	}.value;
+
+	// --- progression re-evaluation (Phase 6, ENG-05, D-10, T-06-12): with anthem
+	// playing, re-evaluating main.scd stacks nothing and keeps the selection; with
+	// auto selected, a re-evaluation loads every progression file again. ---
+	{
+		var before, after, logBad, rec, stemsOnDisk, missing, elapsed = 0, seedSeen, log;
+
+		before = engineCounts.value;
+		~ppLogLines = List.new;
+		2.do {
+			reloadMain.value;
+			0.5.wait;
+		};
+		(~clock.beatDur * 4).wait;
+		after = engineCounts.value;
+
+		compareCounts.("progression re-evaluation", before, after);
+		if (after[\players] != 7) {
+			fail.("progression re-evaluation", "% EventStreamPlayers on ~clock, expected 7".format(after[\players]));
+		};
+		if (after[\routines] != 1) {
+			fail.("progression re-evaluation", "% Routines on ~clock, expected 1 (the ramp stepper)".format(after[\routines]));
+		};
+		if (~ppSel[\progressions] != \anthem) {
+			fail.("progression re-evaluation", "progression selection is % after two re-evaluations, expected anthem".format(~ppSel[\progressions]));
+		};
+		if (~ppLib[\progressions][\anthem].isNil) {
+			fail.("progression re-evaluation", "anthem is not in the registry after two re-evaluations");
+		};
+		while ({ ~ppHarmCycleLog.value.isEmpty and: { elapsed < (~clock.beatDur * 10) } }) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		log = ~ppHarmCycleLog.value;
+		if (log.isEmpty or: { log.last[\stem] != \anthem }) {
+			fail.("progression re-evaluation", "anthem is not the playing progression after the re-evaluations (cycle log %)".format(log.last));
+		};
+		logBad = ~ppLogLines.select { |l| l.asString.find("ERROR").notNil or: { l.asString.find("playing classic for this bar").notNil } };
+		if (logBad.notEmpty) {
+			fail.("progression re-evaluation", "log line during the re-evaluations: %".format(logBad.first));
+		};
+
+		// Auto: a re-evaluation rebuilds the registry (classic only); the stored
+		// auto selection has to load every progression file again.
+		sendSel.('/pp/progression', 'auto');
+		if (waitSel.(\progressions, \auto, 3).not) {
+			fail.("progression re-evaluation", "auto was never selected (selection %)".format(~ppSel[\progressions]));
+		};
+		~ppLogLines = List.new;
+		reloadMain.value;
+		if (~ppSel[\progressions] != \auto) {
+			fail.("progression re-evaluation", "progression selection is % after a re-evaluation on auto, expected auto".format(~ppSel[\progressions]));
+		};
+		stemsOnDisk = (~ppLibRoot +/+ "progressions" +/+ "*.scd").pathMatch.collect { |p|
+			PathName(p).fileNameWithoutExtension
+		}.select { |n| ~ppStemValid.(n) }.collect { |n| n.asSymbol };
+		if (stemsOnDisk.size != 8) {
+			fail.("progression re-evaluation", "% progression files on disk, expected 8 (%)".format(stemsOnDisk.size, stemsOnDisk));
+		};
+		elapsed = 0;
+		missing = stemsOnDisk;
+		while ({
+			missing = stemsOnDisk.select { |n| ~ppLib[\progressions][n].isNil };
+			(~ppAutoPrefetching == true or: { missing.notEmpty }) and: { elapsed < 3 }
+		}) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		if (~ppAutoPrefetching == true) {
+			fail.("progression re-evaluation", "the progressions folder scan was still running 3 s after a re-evaluation on auto");
+		};
+		if (missing.notEmpty) {
+			fail.("progression re-evaluation", "progression files not loaded again after a re-evaluation on auto: %".format(missing));
+		};
+		seedSeen = ~ppLogLines.any { |l| l.asString.find("PedalPulse: progression auto seed ") == 0 };
+		if (seedSeen.not) {
+			fail.("progression re-evaluation", "no 'PedalPulse: progression auto seed' line after a re-evaluation on auto");
+		};
+		(~clock.beatDur * 4).wait;
+		after = engineCounts.value;
+		compareCounts.("progression re-evaluation", before, after);
+		if (after[\routines] != 1) {
+			fail.("progression re-evaluation", "% Routines on ~clock after the auto re-evaluation, expected 1".format(after[\routines]));
+		};
+
+		sendSel.('/pp/progression', 'classic');
+		if (waitSel.(\progressions, \classic, 3).not) {
+			fail.("progression re-evaluation", "classic was never re-selected for progressions (selection %)".format(~ppSel[\progressions]));
+		};
+		sendSel.('/pp/melody', 'classic');
+		if (waitSel.(\melodies, \classic, 3).not) {
+			fail.("progression re-evaluation", "classic was never re-selected for melodies (selection %)".format(~ppSel[\melodies]));
+		};
+		checkOk.("progression re-evaluation");
 	}.value;
 
 	"SMOKE PASS".postln;
