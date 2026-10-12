@@ -59,7 +59,7 @@ Auto: `thisThread.randSeed = (autoSeed * 1000003) + (decisionIndex * 7919)` then
 [\rest, 0.5, 0.1, 0.8], [33, 0.5, 0.1, 0.8], [\rest, 0.5, 0.1, 0.8], [33, 0.5, 0.1, 0.8],
 [\rest, 0.5, 0.1, 0.8], [33, 0.5, 0.1, 0.8], [\rest, 0.5, 0.1, 0.8], [36, 0.5, 0.1, 0.8]
 ```
-**Default pad rows**: first bar of a chord `[[voicing, 4, 0.06, 0.9 * chordBars]]`, later bars `[[\rest, 4, 0, 1]]` (amp 0.06 from classic.scd 34; `\rest` row shape from render.scd 187).
+**Default pad rows**: first bar of a chord `[[voicing, 4, 0.06, legato]]` with legato the smaller of `0.9 * chordBars` and `chordBars - (~ppPadGapBeats / 4)` (gate closes at least one beat before the next chord; 06-01-PLAN.md and RESEARCH Pitfall 4 resolution), later bars `[[\rest, 4, 0, 1]]` (amp 0.06 from classic.scd 34; `\rest` row shape from render.scd 187).
 
 ---
 
@@ -181,7 +181,7 @@ Insert `"harmony.scd"` after `"loader.scd"`.
 
 ### `supercollider/library/README.md` (MOD)
 
-**Analog:** itself. Replace "switches at the next bar line" and "auto ... plays classic for now" for progressions with cycle-end switching, Auto rotation (start classic, 32-64 bars, shuffle no quick repeats) and the chord-data file recipe; document the `ownHarmony` opt-out for melodies if Open Question 1 is confirmed.
+**Analog:** itself. Replace "switches at the next bar line" and "auto ... plays classic for now" for progressions with cycle-end switching, Auto rotation (start classic, 32-64 bars, shuffle no quick repeats) and the chord-data file recipe; document the `ownHarmony` opt-out for melodies (Open Question 1, resolved in planning as a planner decision the user has not yet confirmed; see RESEARCH.md).
 
 ## Shared Patterns
 
