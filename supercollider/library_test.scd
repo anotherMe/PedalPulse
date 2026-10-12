@@ -46,10 +46,11 @@ var expectCounts, expectAmps;
 var sendSel, waitFor, venvPython, newLogs, barOf;
 var tmpRoot, realLibRoot, cleanupTmp, wr, shq, expectClassicBars, leadDiffs, freshText;
 var staticCheck, stripSource, forbiddenTokens, staticTmp, listStems;
-var harmonyCheck, enumVoicings, voicingCost;
+var harmonyCheck, enumVoicings, voicingCost, strictChordCheck;
 
-// Watchdog first, in case anything below hangs.
-SystemClock.sched(200, {
+// Watchdog first, in case anything below hangs. 300 s: the Phase 6 harmony tiers
+// record every chord-data progression on disk (two cycles plus a restart each).
+SystemClock.sched(300, {
 	"LIBRARY FAIL: watchdog timeout".postln;
 	cleanupTmp.value;
 	1.exit;
@@ -308,6 +309,122 @@ voicingCost = { |v, prev|
 	c
 };
 
+// strictChordCheck.(label, stem, mod, add): the strict rule for a chord-data
+// progression (HARM-01, HARM-03). Two full cycles are walked with explicit pure
+// entries (never the live memo, so every file is checked the same way) and the
+// bass, pad and arp are rendered through ~ppRenderBar's 5-argument form. There is
+// no allowance for chord data: every sounding note is in its bar's chord. Only
+// classic's implicit Am carries the passing-F allowance, and it is not chord data.
+// Failures go to add; each kind of failure is reported once per role.
+strictChordCheck = { |label, stem, mod, add|
+	var cyc, len, prev = nil, ents = List.new, logBefore, seen = Set.new, once, padPrev, figure;
+	once = { |key, text|
+		var k = key.asString;
+		if (seen.includes(k).not) {
+			seen.add(k);
+			add.(text);
+		};
+	};
+	cyc = ~ppHarmCycle.(stem, mod);
+	len = cyc[\len];
+	// RESEARCH Open Question 5: a long cycle is a warning, never a failure.
+	if (len > 8) {
+		"CHECK WARN: % cycle is % bars; a pick waits up to % bars".format(label, len, len).postln;
+	};
+	(2 * len).do { |b|
+		var cb = b % len, nf, en;
+		nf = if (cb == (len - 1)) { cyc[\spans][0][\chord] } { nil };
+		en = ~ppHarmEntry.(cyc, cb, prev, nf);
+		prev = en[\voicing];
+		ents.add(en);
+	};
+	figure = [57, 60, 64, 60];
+	logBefore = ~ppLogCount;
+	[\bass, \pad, \arp].do { |role|
+		var ls = ();
+		ents.do { |en, b|
+			var rows, plain, why, sounding, chord = en[\chord], where, onsets, t0 = 0, want, legato;
+			where = "% % bar %".format(label, role, b);
+			rows = ~ppRenderBar.(role, b, b, ls, en);
+			plain = rows.collect { |r| r.copyToEnd(1) };
+			why = ~ppRowsValid.(plain);
+			if (why.notNil) { once.([role, \rows], "%: %".format(where, why)) };
+			sounding = rows.select { |r| r[1] !== \rest };
+			sounding.do { |r|
+				var notes = if (r[1].isArray) { r[1] } { [r[1]] };
+				notes.do { |nn|
+					if (chord[\pcs].includes(nn.round.asInteger % 12).not) {
+						once.([role, \chord], "%: note % is not in chord %".format(where, nn, chord[\name]));
+					};
+				};
+			};
+			if (role == \bass) {
+				onsets = rows.collect { |r| var o = t0; t0 = t0 + r[2]; o };
+				if (sounding.size != 4) {
+					once.([role, \count], "%: sounds % notes, expected 4 offbeat notes".format(where, sounding.size));
+				};
+				rows.do { |r, i|
+					if ((r[1] !== \rest) and: { ((onsets[i] % 1) - 0.5).abs > 1e-6 }) {
+						once.([role, \offbeat], "%: a note starts at beat % which is not an offbeat".format(where, onsets[i]));
+					};
+				};
+			};
+			if (role == \arp) {
+				want = Array.fill(16, { |i| ~ppFollowNote.(figure.wrapAt(i), chord) });
+				if (sounding.collect { |r| r[1] } != want) {
+					once.([role, \figure], "%: notes are % instead of the classic figure on %: %".format(where, sounding.collect { |r| r[1] }, chord[\name], want));
+				};
+			};
+			if (role == \pad) {
+				if (en[\chordBar] == 0) {
+					if (sounding.size != 1) {
+						once.([role, \count], "%: sounds % rows on a chord's first bar, expected 1".format(where, sounding.size));
+					} {
+						legato = min(0.9 * en[\chordBars], en[\chordBars] - 0.25);
+						if ((sounding[0][4] - legato).abs > 1e-9) {
+							once.([role, \legato], "%: legato is % instead of %".format(where, sounding[0][4], legato));
+						};
+						// The gate closes at least one beat before the next chord.
+						if ((sounding[0][2] * sounding[0][4]) > ((en[\chordBars] * 4) - 1 + 1e-6)) {
+							once.([role, \gate], "%: the gate closes less than one beat before the next chord".format(where));
+						};
+						if (sounding[0][1] != en[\voicing]) {
+							once.([role, \voicing], "%: sounds % instead of the entry's voicing %".format(where, sounding[0][1], en[\voicing]));
+						};
+					};
+				} {
+					if (sounding.size != 0) {
+						once.([role, \hold], "%: sounds % rows inside a held chord, expected none".format(where, sounding.size));
+					};
+				};
+			};
+		};
+	};
+	// Every pad change is the nearest close voicing and stays inside the window.
+	padPrev = ~ppPadHome;
+	ents.do { |en, b|
+		if (en[\chordBar] == 0) {
+			var v = en[\voicing], cands, best;
+			cands = enumVoicings.(en[\chord][\pcs], ~ppPadWindow);
+			if (cands.isEmpty) {
+				once.([\pad, \cands], "% pad bar %: no voicing of % fits the window".format(label, b, en[\chord][\name]));
+			} {
+				best = cands.collect { |x| voicingCost.(x, padPrev) }.minItem;
+				if ((v.first < ~ppPadWindow[0]) or: { v.last > ~ppPadWindow[1] }) {
+					once.([\pad, \window], "% pad bar %: voicing % leaves %".format(label, b, v, ~ppPadWindow));
+				};
+				if (voicingCost.(v, padPrev) != best) {
+					once.([\pad, \nearest], "% pad bar %: voicing % moves % semitones, the nearest moves %".format(label, b, v, voicingCost.(v, padPrev), best));
+				};
+			};
+			padPrev = v;
+		};
+	};
+	if (newLogs.(logBefore).any { |l| l.find("playing classic for this bar").notNil }) {
+		add.("% fell back to classic while rendering: %".format(label, newLogs.(logBefore).select { |l| l.find("playing classic for this bar").notNil }.join(" | ")));
+	};
+};
+
 // --- Static tier (LIB-06, LIB-02): every library file, no server needed ---
 // Source with comments removed and string contents blanked, so the lint looks
 // at code only (a desc that happens to say "File" is not a file access).
@@ -478,6 +595,16 @@ staticCheck = { |libRoot, quiet|
 						};
 					};
 
+					// (c2) chord-data progressions: the strict harmony rule, two full cycles.
+					// No allowance for chord data (only classic's implicit Am has one).
+					if ((cat == \progressions) and: { mod[\chords].notNil }) {
+						try {
+							strictChordCheck.(label, stem, mod, add);
+						} { |err|
+							add.("% strict chord check threw: %".format(label, err.errorString));
+						};
+					};
+
 					// (d) palette voices exist with the right controls.
 					if (cat == \palettes) {
 						if (mod[\defs].isFunction) {
@@ -581,7 +708,7 @@ selfCheck = { |rows|
 fork({
 	var elapsed, golden, rec, rows, mismatches, shown, mark;
 	var gold4, matchGold4, restoreAll;
-	var sfail, bad, cp, expectFailure, wrs;
+	var sfail, bad, cp, expectFailure, wrs, cf;
 
 	// ============================================================
 	// Static tier (LIB-06, LIB-02): no server yet. Every .scd file under
@@ -619,6 +746,18 @@ fork({
 		wrs.("melodies/forbidden_call.scd", "(desc: \"forbidden call\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] }, helper: { Synth(\\default) })\n");
 		wrs.("melodies/Bad Name.scd", "(desc: \"bad name\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
 		wrs.("melodies/auto.scd", "(desc: \"reserved name\", arp: { |plan, state| [[60, 4, 0.1, 0.5]] })\n");
+		// Chord-data fixtures (T-06-01, T-06-04): each is a valid desc plus one defect.
+		// cf.(extraKeys, chordsText) -> a progression file's text.
+		cf = { |extra, chordsText| "(\ndesc: \"chord fixture\",\n%chords: [%]\n)\n".format(extra, chordsText) };
+		wrs.("progressions/bad_root.scd", cf.("", "(root: 12, quality: \\min)"));
+		wrs.("progressions/bad_quality.scd", cf.("", "(root: 0, quality: \\dim7)"));
+		wrs.("progressions/bad_intervals.scd", cf.("", "(root: 0, intervals: [0, 3])"));
+		wrs.("progressions/empty_chords.scd", cf.("", ""));
+		wrs.("progressions/too_many.scd", cf.("", 17.collect { "(root: 0, quality: \\min)" }.join(", ")));
+		wrs.("progressions/zero_bars.scd", cf.("", "(root: 0, quality: \\min, bars: 0), (root: 8, quality: \\maj)"));
+		wrs.("progressions/long_cycle.scd", cf.("barsPerChord: 8,\n", "(root: 0, quality: \\min), (root: 8, quality: \\maj), (root: 3, quality: \\maj)"));
+		// A valid chord file whose own bass plays a note outside its chord: the strict branch must refuse it.
+		wrs.("progressions/strict_bass.scd", "(\ndesc: \"bass outside the chord\",\nbass: { |plan, state| [[34, 4, 0.1, 0.8]] },\nchords: [(root: 0, quality: \\min)]\n)\n");
 
 		bad = staticCheck.(staticTmp, true);
 		currentEnvironment.removeAt(\ppStaticProbeVar);
@@ -633,6 +772,14 @@ fork({
 		expectFailure.("a forbidden call", "melodies/forbidden_call uses the forbidden token \"Synth(\"");
 		expectFailure.("a file name with a space and capitals", "melodies/Bad Name breaks the naming rules");
 		expectFailure.("the reserved name auto", "melodies/auto breaks the naming rules");
+		expectFailure.("a chord root of 12", "chord 1 root is not an Integer from 0 to 11");
+		expectFailure.("an unknown chord quality", "chord 1 quality is not one of: maj, min");
+		expectFailure.("bad chord intervals", "chord 1 intervals are not 3 or 4 rising Integers from 0 to 11 starting at 0");
+		expectFailure.("an empty chord list", "chords is empty");
+		expectFailure.("17 chords", "chords has 17 entries, more than 16");
+		expectFailure.("0 bars on a chord", "chord 1 bars is not an Integer from 1 to 8");
+		expectFailure.("a 24-bar cycle", "the cycle is 24 bars, more than 16");
+		expectFailure.("a bass note outside its chord", "progressions/strict_bass bass bar 0: note 34 is not in chord Am");
 		if (bad.any { |f| f.beginsWith("melodies/classic") or: { f.beginsWith("palettes/classic") } }) {
 			fail.("static check catches bad files", "a good classic file failed in the temporary library: %".format(bad));
 		};
@@ -1498,95 +1645,142 @@ fork({
 				checkOk.(name);
 			}.value;
 
-			// 9. chord follow anthem (HARM-01, HARM-03, D-01..D-03, D-11..D-14): bass,
-			// arp, pad and lead sit on the same chord every bar of Am F C G, through
-			// a tempo change and after a restart.
+			// 9. chord follow <stem> (HARM-01, HARM-03, D-01..D-03, D-11..D-14): for
+			// EVERY chord-data progression on disk (every stem except classic and the
+			// _ templates, so a new file is covered automatically), bass, arp, pad and
+			// lead sit on the same chord every bar through two cycles, a tempo change
+			// and a restart. The real library folder is read here, before any
+			// temporary root is set.
 			{
-				var name = "chord follow anthem";
-				var rc, rc2, rws, before, names, padRows, pitched, fresh, perBar, arpF, got, want;
-				names = ["Am", "F", "C", "G"];
-				sendSel.('/pp/progression', 'anthem');
-				sendSel.('/pp/melody', 'classic_lead');
-				if (waitFor.({ (~ppSel[\progressions] == \anthem) and: { ~ppSel[\melodies] == \classic_lead } }, 3).not) {
-					fail.(name, "the selections never became anthem and classic_lead: %".format(~ppSel));
+				var stems;
+				stems = listStems.(~ppLibRoot +/+ "progressions").reject { |n| (n == "classic") or: { n[0] == $_ } };
+				if (stems.isEmpty) {
+					fail.("chord follow", "no chord-data progression on disk to check");
 				};
-				before = ~ppLogCount;
-				rc = recordBars.(12, 16, { |recClock, startBeat|
-					while { recClock.beats < (startBeat + 20) } { 0.02.wait };  // bar 5
-					recClock.tempo = 23;
-					while { recClock.beats < (startBeat + 36) } { 0.02.wait };  // bar 9
-					recClock.tempo = 16;
-				});
-				rws = rc[\rows];
-				harmonyCheck.(name, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
-				12.do { |b|
-					var e = ~ppHarmonyEntry.(b);
-					if (e.isNil or: { e[\progression] != \anthem }) {
-						fail.(name, "bar % is not anthem: %".format(b, e !? { e[\progression] }));
+				stems.do { |stemStr|
+					var stem = stemStr.asSymbol, name = "chord follow " ++ stemStr;
+					var cyc, len, nBars, rc, rc2, rws, before, padRows, pitched, fresh, got, want, perBar, mod, spanAt, first, cname;
+					sendSel.('/pp/progression', stem);
+					sendSel.('/pp/melody', 'classic_lead');
+					if (waitFor.({ (~ppSel[\progressions] == stem) and: { ~ppSel[\melodies] == \classic_lead } }, 3).not) {
+						fail.(name, "the selections never became % and classic_lead: %".format(stem, ~ppSel));
 					};
-					if (e[\chord][\name] != names[b % 4]) {
-						fail.(name, "bar % plays chord %, expected %".format(b, e[\chord][\name], names[b % 4]));
-					};
-					perBar = (ppBass: 4, ppArp: 16, ppLead: 16, ppPad: 1);
-					perBar.keysValuesDo { |layer, n|
-						var got = rws.count { |r| (r[0] == layer) and: { barOf.(r[1]) == b } };
-						if (got != n) { fail.(name, "% bar % holds % rows, expected %".format(layer, b, got, n)) };
-					};
-				};
-				// The pad holds the chord for 3 beats and closes its gate at least a beat before the next chord.
-				padRows = rws.select { |r| r[0] == \ppPad };
-				padRows.do { |r, i|
-					var closes = r[1] + r[7], nextStart;
-					if ((r[7] - 3.0).abs > 1e-6) {
-						fail.(name, "pad sustain % at beat % is not 3 beats".format(r[7], r[1]));
-					};
-					nextStart = if ((i + 1) < padRows.size) { padRows[i + 1][1] } { (barOf.(r[1]) + 1) * 4 };
-					if (closes > (nextStart - 1 + 1e-6)) {
-						fail.(name, "pad at beat % closes its gate at % but the next chord starts at % (less than a beat)".format(r[1], closes, nextStart));
-					};
-				};
-				// The lead is the arp 12 semitones up, and the arp of every F bar is 53 57 60 57.
-				leadDiffs.(rws).do { |d|
-					if (d[1] != 12) { fail.(name, "lead bar % is % semitones above the arp, expected 12".format(d[0], d[1])) };
-				};
-				arpF = rws.select { |r| (r[0] == \ppArp) and: { names[barOf.(r[1]) % 4] == "F" } };
-				if (arpF.isEmpty) { fail.(name, "no arp rows in an F bar") };
-				arpF.do { |r, i|
-					var w = [53, 57, 60, 57][i % 4];
-					if (r[3] != w) { fail.(name, "F bar arp row % is note %, expected %".format(i, r[3], w)) };
-				};
-				// The bass pickup on the last eighth of each bar: Am to F 40, F to C 36, C to G 43, G to Am 35.
-				rws.select { |r| (r[0] == \ppBass) and: { (r[1] % 4) > 3.4 } }.do { |r|
-					var w = [40, 36, 43, 35][barOf.(r[1]) % 4];
-					if (r[3] != w) { fail.(name, "bass pickup in bar % is %, expected %".format(barOf.(r[1]), r[3], w)) };
-				};
-				// The post window says what plays.
-				fresh = newLogs.(before);
-				if (fresh.any { |l| l == "PedalPulse: progression anthem: Am F C G" }.not) {
-					fail.(name, "no 'PedalPulse: progression anthem: Am F C G' line in %".format(fresh));
-				};
+					mod = ~ppLib[\progressions][stem];
+					if (mod.isNil or: { mod[\chords].isNil }) {
+						// A generator-only progression has no chords to follow: the static tier checks it.
+						"CHECK SKIP: % (no chord data)".format(name).postln;
+					} {
+						cyc = ~ppHarmCycle.(stem, mod);
+						len = cyc[\len];
+						nBars = (2 * len) + 4;
+						spanAt = { |cb|
+							cyc[\spans].detect { |sp| (cb >= sp[\start]) and: { cb < (sp[\start] + sp[\bars]) } }
+						};
+						before = ~ppLogCount;
+						rc = recordBars.(nBars, 16, { |recClock, startBeat|
+							while { recClock.beats < (startBeat + 20) } { 0.02.wait };  // bar 5
+							recClock.tempo = 23;
+							while { recClock.beats < (startBeat + 36) } { 0.02.wait };  // bar 9
+							recClock.tempo = 16;
+						});
+						rws = rc[\rows];
+						harmonyCheck.(name, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
+						nBars.do { |b|
+							var e = ~ppHarmonyEntry.(b), sp, arpRows, bassRows, padB, chord, c0;
+							if (e.isNil or: { e[\progression] != stem }) {
+								fail.(name, "bar % is not %: %".format(b, stem, e !? { e[\progression] }));
+							};
+							sp = spanAt.(b % len);
+							if (e[\chord][\name] != sp[\chord][\name]) {
+								fail.(name, "bar % plays chord %, the file says %".format(b, e[\chord][\name], sp[\chord][\name]));
+							};
+							chord = e[\chord];
+							perBar = (ppBass: 4, ppArp: 16, ppLead: 16);
+							perBar.keysValuesDo { |layer, n|
+								var got2 = rws.count { |r| (r[0] == layer) and: { barOf.(r[1]) == b } };
+								if (got2 != n) { fail.(name, "% bar % holds % rows, expected %".format(layer, b, got2, n)) };
+							};
+							// The arp of every bar is the classic figure mapped onto that bar's chord.
+							arpRows = rws.select { |r| (r[0] == \ppArp) and: { barOf.(r[1]) == b } };
+							want = Array.fill(16, { |i| ~ppFollowNote.([57, 60, 64, 60].wrapAt(i), chord) });
+							if (arpRows.collect { |r| r[3] } != want) {
+								fail.(name, "arp bar % under % is % instead of %".format(b, chord[\name], arpRows.collect { |r| r[3] }, want));
+							};
+							// The bass: the chord's root three times, then the pickup or the third.
+							bassRows = rws.select { |r| (r[0] == \ppBass) and: { barOf.(r[1]) == b } };
+							c0 = ~ppBassRoot.(chord);
+							want = [c0, c0, c0, if (e[\changesNext] == true) { ~ppBassPickup.(chord, e[\nextChord]) } { c0 + chord[\intervals][1] }];
+							if (bassRows.collect { |r| r[3] } != want) {
+								fail.(name, "bass bar % under % is % instead of %".format(b, chord[\name], bassRows.collect { |r| r[3] }, want));
+							};
+							// The pad sounds once on a chord's first bar, in the voicing the entry chose,
+							// and never on a later bar of the same chord.
+							padB = rws.select { |r| (r[0] == \ppPad) and: { barOf.(r[1]) == b } };
+							if (e[\chordBar] == 0) {
+								if (padB.size != 1) {
+									fail.(name, "pad bar % (a chord start) holds % rows, expected 1".format(b, padB.size));
+								};
+								first = padB[0];
+								if (first[3] != e[\voicing]) {
+									fail.(name, "pad bar % plays % instead of the entry's voicing %".format(b, first[3], e[\voicing]));
+								};
+								if ((first[3].first < ~ppPadWindow[0]) or: { first[3].last > ~ppPadWindow[1] }) {
+									fail.(name, "pad bar % voicing % leaves the window %".format(b, first[3], ~ppPadWindow));
+								};
+								want = 4 * min(0.9 * e[\chordBars], e[\chordBars] - 0.25);
+								if ((first[7] - want).abs > 1e-6) {
+									fail.(name, "pad bar % sustains % beats, expected %".format(b, first[7], want));
+								};
+								if ((first[1] + first[7]) > (((b + e[\chordBars]) * 4) - 1 + 1e-6)) {
+									fail.(name, "pad bar % closes its gate at beat % but the next chord starts at beat % (less than a beat)".format(b, first[1] + first[7], (b + e[\chordBars]) * 4));
+								};
+							} {
+								if (padB.size != 0) {
+									fail.(name, "pad bar % (inside a chord) holds % rows, expected none".format(b, padB.size));
+								};
+							};
+						};
+						// Anthem's literal bass pickups: Am to F 40, F to C 36, C to G 43, G to Am 35.
+						if (stemStr == "anthem") {
+							rws.select { |r| (r[0] == \ppBass) and: { (r[1] % 4) > 3.4 } }.do { |r|
+								var w = [40, 36, 43, 35][barOf.(r[1]) % 4];
+								if (r[3] != w) { fail.(name, "bass pickup in bar % is %, expected %".format(barOf.(r[1]), r[3], w)) };
+							};
+						};
+						// The lead is the arp 12 semitones up.
+						leadDiffs.(rws).do { |d|
+							if (d[1] != 12) { fail.(name, "lead bar % is % semitones above the arp, expected 12".format(d[0], d[1])) };
+						};
+						// The post window says what plays.
+						fresh = newLogs.(before);
+						cname = "PedalPulse: progression %: %".format(stem, cyc[\names]);
+						if (fresh.any { |l| l == cname }.not) {
+							fail.(name, "no '%' line in %".format(cname, fresh));
+						};
 
-				// A restart begins at the first chord and replays the same pitched rows.
-				rc2 = recordBars.(4, 32);
-				got = ~ppHarmonyEntry.(0);
-				if (got.isNil or: { got[\progression] != \anthem } or: { got[\cycleBar] != 0 } or: { got[\chord][\name] != "Am" }) {
-					fail.(name, "a restart did not begin at Am, cycle bar 0: %".format(got !? { [got[\progression], got[\cycleBar], got[\chord][\name]] }));
-				};
-				pitched = { |r|
-					r.select { |x| [\ppBass, \ppArp, \ppPad, \ppLead].includes(x[0]) and: { x[1] < (16 - 1e-6) } }.collect { |x| [x[0], x[1], x[3], x[4], x[8], x[6]] }
-				};
-				got = pitched.(rc2[\rows]);
-				want = pitched.(rws);
-				if (same.(got, want).not) {
-					fail.(name, "the restart did not replay the first four bars: % rows vs %".format(got.size, want.size));
+						// A restart begins at the first chord and replays the same pitched rows.
+						rc2 = recordBars.(len, 32);
+						got = ~ppHarmonyEntry.(0);
+						if (got.isNil or: { got[\progression] != stem } or: { got[\cycleBar] != 0 } or: { got[\chord][\name] != cyc[\spans][0][\chord][\name] }) {
+							fail.(name, "a restart did not begin at %, cycle bar 0: %".format(cyc[\spans][0][\chord][\name], got !? { [got[\progression], got[\cycleBar], got[\chord][\name]] }));
+						};
+						pitched = { |r|
+							r.select { |x| [\ppBass, \ppArp, \ppPad, \ppLead].includes(x[0]) and: { x[1] < ((len * 4) - 1e-6) } }.collect { |x| [x[0], x[1], x[3], x[4], x[8], x[6]] }
+						};
+						got = pitched.(rc2[\rows]);
+						want = pitched.(rws);
+						if (same.(got, want).not) {
+							fail.(name, "the restart did not replay the first % bars: % rows vs %".format(len, got.size, want.size));
+						};
+						checkOk.(name);
+					};
 				};
 
 				sendSel.('/pp/progression', 'classic');
 				sendSel.('/pp/melody', 'classic');
 				if (waitFor.({ (~ppSel[\progressions] == \classic) and: { ~ppSel[\melodies] == \classic } }, 3).not) {
-					fail.(name, "selections did not return to classic: %".format(~ppSel));
+					fail.("chord follow", "selections did not return to classic: %".format(~ppSel));
 				};
-				checkOk.(name);
 			}.value;
 
 			// 10. named progression switches at the cycle end (HARM-04): a pick in the
