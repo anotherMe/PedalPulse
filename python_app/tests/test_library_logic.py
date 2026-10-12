@@ -214,6 +214,44 @@ def test_failed_send_keeps_the_selection(tmp_path):
     assert selector.selected == "classic"
 
 
+def test_failed_send_can_be_retried_by_picking_the_same_name(tmp_path):
+    results = iter([False, True])
+    sent = []
+
+    def send(name):
+        sent.append(name)
+        return next(results)
+
+    selector, _ = _make_selector(_folder_with(tmp_path, "classic"), send=send)
+    heard = []
+    selector.add_listener(heard.append)
+
+    selector.select("classic")  # send reports failure
+    selector.select("classic")  # same pick retries
+    selector.select("classic")  # last send succeeded: D-05, nothing sent
+
+    assert sent == ["classic", "classic"]
+    assert heard == ["classic"]
+    assert selector.selected == "classic"
+
+
+def test_failed_initial_send_can_be_retried_by_picking_auto(tmp_path):
+    results = iter([False, True])
+    sent = []
+
+    def send(name):
+        sent.append(name)
+        return next(results)
+
+    selector, _ = _make_selector(_folder_with(tmp_path, "classic"), send=send)
+
+    selector.send_initial()
+    selector.select("Auto")
+    selector.select("Auto")
+
+    assert sent == ["auto", "auto"]
+
+
 def test_name_not_on_disk_is_still_sent(tmp_path):
     selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
 

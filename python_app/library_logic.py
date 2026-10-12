@@ -80,6 +80,10 @@ class LibrarySelector:
         self._send = send
         self._scan = scan
         self._selected = config.AUTO_LABEL
+        # False after a send that reported failure, so the same pick can be
+        # retried (WR-01). D-05 still holds: after a successful send, picking
+        # the selected item sends nothing.
+        self._last_send_ok = True
         self._listeners: list[Callable[[str], None]] = []
 
     @property
@@ -101,16 +105,22 @@ class LibrarySelector:
         """Pick `label`: notify listeners, then send it once (D-05).
 
         Does nothing for a non-string, an empty label or the label already
-        selected. The label is not checked against the folder: a file can
-        vanish between listing and picking, and the engine validates.
+        selected, unless the last send of that label reported failure: then
+        picking it again resends it (listeners are not told twice). The
+        label is not checked against the folder: a file can vanish between
+        listing and picking, and the engine validates.
         """
-        if not isinstance(label, str) or not label or label == self._selected:
+        if not isinstance(label, str) or not label:
+            return
+        retry = label == self._selected
+        if retry and self._last_send_ok:
             return
         self._selected = label
-        for fn in self._listeners:
-            fn(label)
-        self._send(to_wire(label))
+        if not retry:
+            for fn in self._listeners:
+                fn(label)
+        self._last_send_ok = self._send(to_wire(label)) is not False
 
     def send_initial(self) -> None:
         """Send the current choice once, without notifying (D-04)."""
-        self._send(to_wire(self._selected))
+        self._last_send_ok = self._send(to_wire(self._selected)) is not False

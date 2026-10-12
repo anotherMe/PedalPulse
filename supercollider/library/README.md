@@ -50,7 +50,8 @@ you open it.
 Picking a name sends it to the engine. The engine switches at the next bar line
 and prints a line in the SuperCollider post window.
 
-Picking the name that is already selected does nothing. To hear a file again
+Picking the name that is already selected does nothing, unless the last send of
+it failed: then picking it again sends it again. To hear a file again
 after you changed it, pick another name and then pick it back, or use the
 one-liner below.
 
