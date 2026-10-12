@@ -2,44 +2,44 @@
 gsd_state_version: "1.0"
 milestone: v2.0
 milestone_name: Living Music
-current_phase: 05
-current_phase_name: Library Selectors in the GUI
-status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-10-12T13:09:47.752Z"
+current_phase: 6
+current_phase_name: Shared Harmony & Progressions
+status: planning
+stopped_at: Phase 05 complete, ready to plan Phase 6
+last_updated: "2026-10-12T15:11:45.749Z"
 last_activity: 2026-10-12
-last_activity_desc: Phase 05 execution resumed (wave continue)
-state_head: 9691e40ff68a491e83977d81968092f1dd85357b
+last_activity_desc: Phase 05 complete, transitioned to Phase 6
+state_head: accb5b3bab2c8bc4bc6bc63748d5305b8547d2f5
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 9
   completed_plans: 9
-  percent: 67
+  percent: 56
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-11)
+See: .planning/PROJECT.md (updated 2026-10-12)
 
 **Core value:** Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes the live, generated music in SuperCollider — the Python → OSC → SuperCollider chain works end to end.
-**Current focus:** Phase 05 — Library Selectors in the GUI
+**Current focus:** Phase 6 — Shared Harmony & Progressions
 
 ## Current Position
 
-Phase: 05 (Library Selectors in the GUI) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 05
-Last activity: 2026-10-12 — Phase 05 execution resumed (wave continue)
+Phase: 6 — Shared Harmony & Progressions
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-12 — Phase 05 complete, transitioned to Phase 6
 
-Progress: [███████░░░] 67% (v2.0)
+Progress: [██████░░░░] 56% (v2.0)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 20
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -51,6 +51,7 @@ Progress: [███████░░░] 67% (v2.0)
 | 02 | 4 | - | - |
 | 03 | 4 | - | - |
 | 04 | 6 | - | - |
+| 05 | 3 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -88,6 +89,7 @@ Recent decisions affecting current work:
 - [Phase 2]: `~ppRampStepper` is the only writer of `~clock.tempo` (8-beat glide, beat-aligned engage, mid-glide retarget); Phase 3 EPIC changes must not write tempo
 - [Phase 2]: New voices stay within ≤3 oscillators + 1 filter, write to `~ppMixBus` (through the limiter) and self-free with doneAction: 2
 - [Phase 3]: EPIC is `/pp/epic <float 0–100>` → one raw bus → one `Lag.kr` smoother → one `\ppFx` synth → `~ppFxBus` → `\ppMaster`; zones are Recovery 10 / Endurance 30 / Tempo 50 / Threshold 75 / VO2 100
+- [Phase 5]: GUI library dropdowns (palette, progression, melody) list Auto plus the stems of `supercollider/library/<category>/*.scd`, rescanned on every open (no watcher/timer); the engine is the name validator, a repeat pick sends nothing
 - [Phase 3]: Volume is `/pp/volume <float 0–100>`, a 0.2 s lagged squared-taper gain inside `\ppMaster` before the limiter; GUI sends on slider release, launch sends 80
 
 ### Pending Todos
@@ -122,10 +124,10 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T10:13:28.430Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-library-selectors-in-the-gui/05-CONTEXT.md
+Last session: 2026-10-12
+Stopped at: Phase 05 complete (UAT 6/6 passed), ready to plan Phase 6
+Resume file: None
 
 ## Operator Next Steps
 
-- Discuss Phase 4 with /gsd-discuss-phase 4, then plan it with /gsd-plan-phase 4
+- Discuss Phase 6 with /gsd-discuss-phase 6, then plan it with /gsd-plan-phase 6

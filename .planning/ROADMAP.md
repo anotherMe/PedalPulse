@@ -33,7 +33,7 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
 - Decimal phases (5.1, 5.2): urgent insertions (marked with INSERTED)
 
 - [x] **Phase 4: Modular Engine & Variation Library** - The engine is split into a core plus `supercollider/library/` modules with `classic` entries and still sounds exactly like v1.0. Adds safe loading, fallback, reload by name and a library check (completed 2026-10-12)
-- [ ] **Phase 5: Library Selectors in the GUI** - Palette, Progression and Melody selectors list Auto plus every library file on disk and send the chosen name over send-only OSC
+- [x] **Phase 5: Library Selectors in the GUI** - Palette, Progression and Melody selectors list Auto plus every library file on disk and send the chosen name over send-only OSC (completed 2026-10-12)
 - [ ] **Phase 6: Shared Harmony & Progressions** - One chord progression drives bass, arp and pad together, with voice-led pads and at least 6 selectable progressions
 - [ ] **Phase 7: Sound Palettes** - At least 5 loudness-matched sound palettes that rotate on their own in Auto and lock when picked by name
 - [ ] **Phase 8: Evolving Melodies** - A rule-based lead whose motifs repeat, mutate and get replaced, a chord-following arp, at least 3 melody styles, and logged seeds
@@ -87,7 +87,7 @@ Plans:
   3. A name the engine doesn't know (for example, a file deleted after the app started) is ignored by the engine with a warning while the music keeps playing, and the GUI never crashes
   4. After using any selector, the Up/Down arrow keys and the other BPM shortcuts still change BPM exactly as before. The selectors never take keyboard focus
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -172,7 +172,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 2. Full Groove & Smooth Tempo | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 3. EPIC Zones & Volume | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
-| 5. Library Selectors in the GUI | v2.0 | 3/3 | In Progress | - |
+| 5. Library Selectors in the GUI | v2.0 | 3/3 | Complete    | 2026-10-12 |
 | 6. Shared Harmony & Progressions | v2.0 | 0/TBD | Not started | - |
 | 7. Sound Palettes | v2.0 | 0/TBD | Not started | - |
 | 8. Evolving Melodies | v2.0 | 0/TBD | Not started | - |

@@ -51,9 +51,9 @@ Requirements for this milestone. Each maps to roadmap phases. Research: `.planni
 
 ### GUI selectors (GUI)
 
-- [ ] **GUI-05**: The GUI has palette, progression and melody-style selectors, each offering Auto plus every item found in the library folder on disk
-- [ ] **GUI-06**: A selection reaches the engine over send-only OSC by name. Unknown names are ignored by the engine with a warning, and the GUI never crashes
-- [ ] **GUI-07**: The selectors don't interfere with the existing BPM keyboard shortcuts
+- [x] **GUI-05**: The GUI has palette, progression and melody-style selectors, each offering Auto plus every item found in the library folder on disk
+- [x] **GUI-06**: A selection reaches the engine over send-only OSC by name. Unknown names are ignored by the engine with a warning, and the GUI never crashes
+- [x] **GUI-07**: The selectors don't interfere with the existing BPM keyboard shortcuts
 
 ### Stability (ENG)
 
@@ -117,9 +117,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STRU-03 | Phase 9 | Pending |
 | EPIC-04 | Phase 9 | Pending |
 | EPIC-05 | Phase 9 | Pending |
-| GUI-05 | Phase 5 | Pending |
-| GUI-06 | Phase 5 | Pending |
-| GUI-07 | Phase 5 | Pending |
+| GUI-05 | Phase 5 | Complete |
+| GUI-06 | Phase 5 | Complete |
+| GUI-07 | Phase 5 | Complete |
 | ENG-03 | Phase 9 | Pending |
 | ENG-05 | Phase 4 | Complete |
 

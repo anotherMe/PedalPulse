@@ -50,6 +50,7 @@ Shipped in v2.0:
 
 - ✓ Engine core (`supercollider/core/` loader, renderer, validator) split from musical content in `supercollider/library/`; the split plays the shipped groove note for note (0 parity mismatches) and re-evaluating never stacks layers or routines — Phase 4
 - ✓ Named, never-overwritten library files for progressions, melodies and palettes, selectable live by name over OSC (`/pp/progression`, `/pp/palette`, `/pp/melody`, loopback-only) from the next bar; a broken file is refused and the last good copy keeps playing; `bash scripts/check.sh` guards, validates every file and runs the smoke suite — Phase 4
+- ✓ GUI dropdowns for palette, progression and melody (Auto or a named item), built from the library folder and rescanned each time a dropdown opens, so new files appear without a restart; send-only, a repeat pick sends nothing, BPM keys keep working — Phase 5
 
 ### Active
 
@@ -59,7 +60,6 @@ Milestone v2.0 Living Music (detailed REQ-IDs in REQUIREMENTS.md):
 - [ ] Rule-based, evolving melodies instead of fixed note lists
 - [ ] Multi-timescale song structure (fills, motif changes, breakdown/build/drop sections)
 - [ ] EPIC drives arrangement density in addition to brightness/energy
-- [ ] GUI selectors (Auto or a named item) for palette, progression and melody style, populated from the library folder, send-only
 - [ ] Long-session stability (ENG-03: 60+ min without node/CPU growth). Carried over from v1.0; more important now that the engine does more
 
 ### Out of Scope
@@ -120,7 +120,7 @@ Milestone v2.0 Living Music (detailed REQ-IDs in REQUIREMENTS.md):
 | No resync after an engine restart (the GUI keeps its last values, the engine resets to defaults) | Follows from the send-only design; restarting the app resyncs | ⚠️ Revisit — milestone audit W2, accepted as tech debt in v1.0 |
 | v2.0: core + modules layout instead of one big .scd or one self-contained file per style | One big file grows unmanageable; per-style full patches duplicate the engine and stop the music when switching | ✓ Good — Phase 4 (parity 0 mismatches; UAT: default startup sounds like v1.0) |
 | v2.0: variation library lives in SuperCollider as named `.scd` files under `supercollider/library/<category>/`; new experiments are new files, never edits of old ones | The rider must be able to switch back to any earlier experiment; musical content is SC code anyway; git keeps history | ✓ Good — Phase 4 (check.sh guard; `classic_lead_loud` added as a new file and switched to live) |
-| v2.0: GUI builds its selector lists by reading the library folder on disk; selections are sent by name over OSC | Keeps the app send-only (no engine → GUI channel) and needs no separate Python config to keep in sync | — Pending |
+| v2.0: GUI builds its selector lists by reading the library folder on disk; selections are sent by name over OSC | Keeps the app send-only (no engine → GUI channel) and needs no separate Python config to keep in sync | ✓ Good — Phase 5 (UAT: new file appears on the next open, unknown names refused by the engine, no crash with the engine stopped) |
 | v2.0: palettes rotate automatically, and a GUI selector can lock one | Variety by default on long rides, plus a way to audition and name what to give feedback on | — Pending |
 | v2.0: EPIC drives arrangement density as well as brightness/energy | Recovery should feel sparse and VO2 full-on | — Pending |
 | v2.0: a new variation's change must be clearly audible in the full mix | Phase 4 UAT: `classic_lead` (octave-up lead 12 dB under the arp) could not be heard; `classic_lead_loud` at the arp's level could | ✓ Good — Phase 4 |
@@ -144,4 +144,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-12 after Phase 4*
+*Last updated: 2026-10-12 after Phase 5*
