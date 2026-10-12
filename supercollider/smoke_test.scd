@@ -2080,7 +2080,7 @@ fork({
 		// --- single modules, each twice, while playing ---
 		before = engineCounts.value;
 		snapBefore = roleSnapshot.value;
-		["validate.scd", "loader.scd", "render.scd"].do { |name|
+		["validate.scd", "loader.scd", "harmony.scd", "render.scd"].do { |name|
 			2.do {
 				var result = (root +/+ "supercollider/core" +/+ name).load;
 				if (result.isNil) {

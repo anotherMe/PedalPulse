@@ -8,12 +8,90 @@
 //
 // Contract-freeze rule: unknown keys and unknown role names are ignored, never
 // errors. Later phases add optional fields to modules and committed files never
-// need an edit.
+// need an edit. (Phase 6 adds the optional progression keys chords and
+// barsPerChord; a file that has them is checked by ~ppChordDataReasons.)
 //
 // Events are always accessed with [\key], never dot syntax.
 
 ~ppDrumRoles = [\kick, \hat, \clap];
 ~ppPitchedRoles = [\bass, \pad, \arp, \lead];
+
+// Chord qualities a progression file may name (Phase 6). Intervals are semitones
+// above the chord root. core/harmony.scd reads this table, so it lives here,
+// next to the validator that checks a file's chord data against it.
+~ppChordTypes = (maj: [0, 4, 7], min: [0, 3, 7]);
+
+// module -> Array of reason Strings for a progression's chord data (empty means
+// valid). Never throws on hostile values: every value's class is checked before
+// it is used, and the chord count is checked before any chord is looked at, so a
+// huge Array is refused without a loop over it. N in a reason is the 1-based
+// chord number.
+~ppChordDataReasons = { |module|
+	var reasons = List.new, chords, cycle = 0, bpc, isInt, intervalsOk, qualityKeys;
+	isInt = { |x, lo, hi| x.isKindOf(Integer) and: { (x >= lo) and: { x <= hi } } };
+	intervalsOk = { |iv|
+		var ok = iv.isKindOf(Array) and: { (iv.size == 3) or: { iv.size == 4 } };
+		if (ok) {
+			ok = iv.every { |x| isInt.(x, 0, 11) };
+		};
+		if (ok) {
+			ok = (iv[0] == 0);
+		};
+		if (ok) {
+			(iv.size - 1).do { |i| if (iv[i + 1] <= iv[i]) { ok = false } };
+		};
+		ok
+	};
+	qualityKeys = ~ppChordTypes.keys.asArray.sort.join(", ");
+	chords = module[\chords];
+	bpc = module[\barsPerChord];
+	if (bpc.notNil and: { isInt.(bpc, 1, 8).not }) {
+		reasons.add("barsPerChord is not an Integer from 1 to 8");
+	};
+	if (chords.isKindOf(Array).not) {
+		reasons.add("chords is not an Array");
+	} {
+		if (chords.size < 1) {
+			reasons.add("chords is empty");
+		} {
+			if (chords.size > 16) {
+				reasons.add("chords has % entries, more than 16".format(chords.size));
+			} {
+				chords.do { |c, i|
+					var n = i + 1, bars;
+					if (c.isKindOf(Event).not) {
+						reasons.add("chord % is not an Event".format(n));
+						cycle = cycle + 1;
+					} {
+						if (isInt.(c[\root], 0, 11).not) {
+							reasons.add("chord % root is not an Integer from 0 to 11".format(n));
+						};
+						if (c[\quality].notNil and: { ~ppChordTypes[c[\quality]].isNil }) {
+							reasons.add("chord % quality is not one of: %".format(n, qualityKeys));
+						};
+						if (c[\intervals].notNil and: { intervalsOk.(c[\intervals]).not }) {
+							reasons.add("chord % intervals are not 3 or 4 rising Integers from 0 to 11 starting at 0".format(n));
+						};
+						if (c[\quality].isNil and: { c[\intervals].isNil }) {
+							reasons.add("chord % has neither quality nor intervals".format(n));
+						};
+						bars = c[\bars];
+						if (bars.notNil and: { isInt.(bars, 1, 8).not }) {
+							reasons.add("chord % bars is not an Integer from 1 to 8".format(n));
+						};
+						// The cycle length counts valid numbers only; a bad value was
+						// already refused above.
+						cycle = cycle + if (isInt.(bars, 1, 8)) { bars } { if (isInt.(bpc, 1, 8)) { bpc } { 1 } };
+					};
+				};
+				if (cycle > 16) {
+					reasons.add("the cycle is % bars, more than 16".format(cycle));
+				};
+			};
+		};
+	};
+	reasons.asArray
+};
 
 // rows -> nil when valid, otherwise one reason String.
 // A bar is a non-empty Array of [note, dur, amp, legato] rows whose durs sum
@@ -85,9 +163,14 @@
 			reasons.add("desc is missing or not a non-empty String");
 		};
 		if (cat == \progressions) {
-			anyOf.([\bass, \pad]);
+			// A progression is chord data (chords) and/or its own bass and pad
+			// generators. Classic is generators only; it has no chords.
+			anyOf.([\bass, \pad, \chords]);
 			checkFn.(\bass);
 			checkFn.(\pad);
+			if (module[\chords].notNil or: { module[\barsPerChord].notNil }) {
+				~ppChordDataReasons.(module).do { |r| reasons.add(r) };
+			};
 		};
 		if (cat == \melodies) {
 			anyOf.([\arp, \lead]);

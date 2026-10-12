@@ -35,6 +35,7 @@ if (~ppRoot.isNil) {
 };
 ~ppLoadCore.("validate.scd");
 ~ppLoadCore.("loader.scd");
+~ppLoadCore.("harmony.scd");
 ~ppLoadCore.("render.scd");
 
 // Startup defaults to classic in every category (D-07). Like ~bpm, the
@@ -85,6 +86,8 @@ s.waitForBoot({
 	// lead rows otherwise.
 	~ppLayers = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad, \ppLead];
 	~ppLayers.do { |name| Pbindef(name).stop };
+	// A new engine starts a new harmony run (core/harmony.scd).
+	~ppHarmReset.value;
 	if (~ppRampStepper.notNil) { ~ppRampStepper.stop };
 	if (~clock.notNil) { ~clock.stop };
 	// Wait out s.latency: a note-on just before .stop may already be sent as
@@ -270,6 +273,9 @@ s.waitForBoot({
 	// pair, so there is exactly one code path that starts or stops the
 	// groove.
 	~ppStart = {
+		// A Start always begins a new harmony run at the selected progression's
+		// first chord (the layers re-enter together on the next bar line).
+		~ppHarmReset.value;
 		~ppLayers.do { |name| Pbindef(name).play(~clock, quant: 4, doReset: true) };
 		~ppPlaying = true;
 		~ppTransportCount = ~ppTransportCount + 1;
@@ -384,8 +390,9 @@ s.waitForBoot({
 	// --- OSC control: /pp/progression, /pp/palette, /pp/melody <string> (LIB-02, LIB-05) ---
 	// Loopback-only, same srcID guard as the four addresses above. The argument
 	// is `auto` or a library file stem. The handler only validates and
-	// delegates: the file is read in a background Routine and the switch lands
-	// on the next bar line. Loading and s.sync never happen in the responder
+	// delegates: the file is read in a background Routine. A progression
+	// switches at the end of the current progression cycle (core/harmony.scd);
+	// a palette or melody at the next bar line. Loading and s.sync never happen in the responder
 	// (ARCHITECTURE Anti-Pattern 4). Re-sending the current name reloads its
 	// file. Nothing is ever sent back. These three addresses and the
 	// auto-or-stem argument are the frozen interface Phase 5's GUI uses.
