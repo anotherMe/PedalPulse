@@ -87,7 +87,7 @@ Plans:
   3. A name the engine doesn't know (for example, a file deleted after the app started) is ignored by the engine with a warning while the music keeps playing, and the GUI never crashes
   4. After using any selector, the Up/Down arrow keys and the other BPM shortcuts still change BPM exactly as before. The selectors never take keyboard focus
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -97,7 +97,7 @@ Plans:
 - [x] 05-02-PLAN.md — The dropdowns only offer names the engine accepts (test-first scan rule); the send-on-change and never-crash send contracts proven
 
 **Wave 3** *(blocked on Wave 2 completion; no shared files with 05-02, but its full-suite gate runs 05-02's tests, so it waits for 05-02's GREEN commit)*
-- [ ] 05-03-PLAN.md — A new file appears when a dropdown is opened; the BPM keys keep working (GUI-07); README section; engine library check; the rider's end-of-phase selector check
+- [x] 05-03-PLAN.md — A new file appears when a dropdown is opened; the BPM keys keep working (GUI-07); README section; engine library check; the rider's end-of-phase selector check
 
 **UI hint**: yes
 
@@ -172,7 +172,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 2. Full Groove & Smooth Tempo | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 3. EPIC Zones & Volume | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
-| 5. Library Selectors in the GUI | v2.0 | 2/3 | In Progress | - |
+| 5. Library Selectors in the GUI | v2.0 | 3/3 | In Progress | - |
 | 6. Shared Harmony & Progressions | v2.0 | 0/TBD | Not started | - |
 | 7. Sound Palettes | v2.0 | 0/TBD | Not started | - |
 | 8. Evolving Melodies | v2.0 | 0/TBD | Not started | - |
