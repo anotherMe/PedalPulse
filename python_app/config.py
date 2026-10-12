@@ -12,8 +12,11 @@ OSC_BPM_ADDRESS = "/pp/bpm"
 OSC_PLAY_ADDRESS = "/pp/play"
 OSC_EPIC_ADDRESS = "/pp/epic"
 OSC_VOLUME_ADDRESS = "/pp/volume"
-# GUI-05/GUI-06: the library selection address. Fixed by the engine's
-# OSCdef(\pp_melody) in supercollider/main.scd (frozen Phase 4 interface).
+# GUI-05/GUI-06: the library selection addresses. Fixed by the engine's
+# OSCdef(\pp_palette), OSCdef(\pp_progression) and OSCdef(\pp_melody) in
+# supercollider/main.scd (frozen Phase 4 interface).
+OSC_PALETTE_ADDRESS = "/pp/palette"
+OSC_PROGRESSION_ADDRESS = "/pp/progression"
 OSC_MELODY_ADDRESS = "/pp/melody"
 BPM_MIN = 60
 BPM_MAX = 180
@@ -46,6 +49,13 @@ VOLUME_DEFAULT = 80
 # GUI-05: library selectors. The library folders are resolved from this
 # file, never from the current directory.
 LIBRARY_ROOT = Path(__file__).resolve().parents[1] / "supercollider" / "library"
+# One dropdown per entry: (title shown, folder under LIBRARY_ROOT, OSC
+# address), in side-column order top to bottom (D-03).
+LIBRARY_CATEGORIES = (
+    ("Palette", "palettes", OSC_PALETTE_ADDRESS),
+    ("Progression", "progressions", OSC_PROGRESSION_ADDRESS),
+    ("Melody", "melodies", OSC_MELODY_ADDRESS),
+)
 # D-07: the label shown in the GUI, and the word sent to the engine (where
 # "auto" is a reserved word, not a file stem).
 AUTO_LABEL = "Auto"

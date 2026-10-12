@@ -53,11 +53,14 @@ def main(argv: list[str] | None = None) -> int:
     play = PlayController(send=client.send_play)
     epic = EpicController(send=client.send_epic)
     volume = VolumeController(send=client.send_volume)
-    melody = LibrarySelector(
-        "Melody",
-        config.LIBRARY_ROOT / "melodies",
-        send=functools.partial(client.send_selection, config.OSC_MELODY_ADDRESS),
-    )
+    selectors = [
+        LibrarySelector(
+            title,
+            config.LIBRARY_ROOT / folder,
+            send=functools.partial(client.send_selection, address),
+        )
+        for title, folder, address in config.LIBRARY_CATEGORIES
+    ]
     BpmWindow(
         root,
         controller,
@@ -65,13 +68,14 @@ def main(argv: list[str] | None = None) -> int:
         play_controller=play,
         epic_controller=epic,
         volume_controller=volume,
-        selector_controllers=[melody],
+        selector_controllers=selectors,
     )
     controller.send_initial()
     play.send_initial()
     epic.send_initial()
     volume.send_initial()
-    melody.send_initial()
+    for selector in selectors:
+        selector.send_initial()
 
     if args.exit_after > 0:
         root.after(args.exit_after, root.destroy)

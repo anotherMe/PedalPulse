@@ -87,15 +87,16 @@ def _build_all(
     selector_sent: dict[str, list[str]] = {}
     if selectors is None:
         selectors = []
-        melody_sent: list[str] = []
-        selector_sent["Melody"] = melody_sent
-        selectors.append(
-            LibrarySelector(
-                "Melody",
-                (library_root or config.LIBRARY_ROOT) / "melodies",
-                send=melody_sent.append,
+        for title, folder, _address in config.LIBRARY_CATEGORIES:
+            category_sent: list[str] = []
+            selector_sent[title] = category_sent
+            selectors.append(
+                LibrarySelector(
+                    title,
+                    (library_root or config.LIBRARY_ROOT) / folder,
+                    send=category_sent.append,
+                )
             )
-        )
     window = BpmWindow(
         root,
         controller,
@@ -559,3 +560,84 @@ def test_melody_dropdown_pick_reaches_engine_over_udp(tk_root, tmp_path):
         assert list(message.params) == ["auto"]
     finally:
         sock.close()
+
+
+def test_library_column_order_and_initial_state(tk_root):
+    built = _build_all(tk_root)
+    window = built.window
+
+    assert list(window.library_buttons) == ["Palette", "Progression", "Melody"]
+    expected = []
+    for title in ("Palette", "Progression", "Melody"):
+        expected += [window.library_labels[title], window.library_buttons[title]]
+        assert window.library_labels[title]["text"] == title
+        assert window.library_vars[title].get() == "Auto"
+        assert str(window.library_buttons[title]["takefocus"]) == "0"
+    assert window.library_column.pack_slaves() == expected
+    # Building sends nothing; only send_initial does.
+    assert built.selector_sent == {"Palette": [], "Progression": [], "Melody": []}
+
+
+def test_library_column_sits_right_of_unchanged_column(tk_root):
+    window = _build_all(tk_root).window
+    old_column = window.scale.master
+
+    assert tk_root.pack_slaves() == [old_column, window.library_column]
+    tk_root.update_idletasks()
+    # D-02: the column adds width, not height.
+    assert tk_root.winfo_reqheight() == old_column.winfo_reqheight()
+    assert tk_root.winfo_reqwidth() > old_column.winfo_reqwidth()
+
+
+def test_dropdown_width_is_fixed(tk_root):
+    window = _build_all(tk_root).window
+    tk_root.update_idletasks()
+    before = tk_root.winfo_reqwidth()
+
+    for var in window.library_vars.values():
+        var.set("a_long_name_" + "x" * 34)  # 46 characters
+    tk_root.update_idletasks()
+
+    assert tk_root.winfo_reqwidth() == before
+
+
+def test_each_dropdown_lists_its_own_folder(tk_root, tmp_path):
+    layout = {
+        "palettes": ["classic", "bright"],
+        "progressions": ["classic", "minor_walk"],
+        "melodies": ["classic", "classic_lead", "classic_lead_loud"],
+    }
+    for folder, stems in layout.items():
+        (tmp_path / folder).mkdir()
+        for stem in stems:
+            (tmp_path / folder / f"{stem}.scd").write_text("()")
+
+    window = _build_all(tk_root, library_root=tmp_path).window
+
+    assert _menu_labels(window.library_menus["Palette"]) == ["Auto", "classic", "bright"]
+    assert _menu_labels(window.library_menus["Progression"]) == ["Auto", "classic", "minor_walk"]
+    assert _menu_labels(window.library_menus["Melody"]) == [
+        "Auto",
+        "classic",
+        "classic_lead",
+        "classic_lead_loud",
+    ]
+
+
+def test_same_stem_goes_only_to_its_own_category(tk_root, tmp_path):
+    for folder in ("palettes", "progressions", "melodies"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "classic.scd").write_text("()")
+
+    built = _build_all(tk_root, library_root=tmp_path)
+    sent = built.selector_sent
+
+    built.window.library_menus["Melody"].invoke(1)
+    assert sent["Melody"] == ["classic"]
+    assert sent["Palette"] == []
+    assert sent["Progression"] == []
+
+    built.window.library_menus["Palette"].invoke(1)
+    assert sent["Palette"] == ["classic"]
+    assert sent["Melody"] == ["classic"]
+    assert sent["Progression"] == []
