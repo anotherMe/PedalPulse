@@ -35,6 +35,7 @@ if (~ppRoot.isNil) {
 };
 ~ppLoadCore.("validate.scd");
 ~ppLoadCore.("loader.scd");
+~ppLoadCore.("harmony.scd");
 ~ppLoadCore.("render.scd");
 
 // Startup defaults to classic in every category (D-07). Like ~bpm, the
@@ -85,6 +86,8 @@ s.waitForBoot({
 	// lead rows otherwise.
 	~ppLayers = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad, \ppLead];
 	~ppLayers.do { |name| Pbindef(name).stop };
+	// A new engine starts a new harmony run (core/harmony.scd).
+	~ppHarmReset.value;
 	if (~ppRampStepper.notNil) { ~ppRampStepper.stop };
 	if (~clock.notNil) { ~clock.stop };
 	// Wait out s.latency: a note-on just before .stop may already be sent as
@@ -270,6 +273,9 @@ s.waitForBoot({
 	// pair, so there is exactly one code path that starts or stops the
 	// groove.
 	~ppStart = {
+		// A Start always begins a new harmony run at the selected progression's
+		// first chord (the layers re-enter together on the next bar line).
+		~ppHarmReset.value;
 		~ppLayers.do { |name| Pbindef(name).play(~clock, quant: 4, doReset: true) };
 		~ppPlaying = true;
 		~ppTransportCount = ~ppTransportCount + 1;

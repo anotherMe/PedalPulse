@@ -10,6 +10,9 @@
 // Numbers (a chord) or \rest; the durs sum to 4.0. plan is
 // (bar:, songBar:, phraseBar:, role:), built by ~ppPlanFor. This is the seam
 // later phases extend with optional keys; existing keys never change meaning.
+// Phase 6 adds the optional harmony keys of a pitched role's plan: progression,
+// chord, nextChord, changesNext, chordBar, chordBars, cycleBar, cycleLen, voicing
+// and scale (core/harmony.scd explains each). Drum plans never carry them.
 // Events are always accessed with [\key], never dot syntax.
 
 // layer name -> role. A role is what a generator or a palette is asked for.
@@ -70,8 +73,23 @@
 	inst ? \default
 };
 
-~ppPlanFor = { |bar, songBar, role|
-	(bar: bar, songBar: songBar, phraseBar: songBar % 8, role: role)
+// entry is the harmony entry of this bar (core/harmony.scd); without one the plan
+// has the four frozen keys only, so a 3-argument caller keeps working.
+~ppPlanFor = { |bar, songBar, role, entry|
+	var plan = (bar: bar, songBar: songBar, phraseBar: songBar % 8, role: role);
+	if (entry.notNil) {
+		plan[\progression] = entry[\progression];
+		plan[\chord] = entry[\chord];
+		plan[\nextChord] = entry[\nextChord];
+		plan[\changesNext] = entry[\changesNext];
+		plan[\chordBar] = entry[\chordBar];
+		plan[\chordBars] = entry[\chordBars];
+		plan[\cycleBar] = entry[\cycleBar];
+		plan[\cycleLen] = entry[\cycleLen];
+		plan[\voicing] = entry[\voicing];
+		plan[\scale] = entry[\scale];
+	};
+	plan
 };
 
 // --- Seeding (RESEARCH Pitfall 4) ---
@@ -132,8 +150,20 @@
 // counted, and the third failure sends the category back to classic. A module
 // that simply has no generator for the role uses classic's silently (that is
 // not a failure).
-~ppRenderBar = { |role, songBar, bar, layerState|
-	var cat, mod, key, gen, res, inst, plan, out, drum, failure, classicMod, fb;
+//
+// Harmony (Phase 6): a pitched role pulls the memoized harmony entry for its own
+// (bar, songBar) from core/harmony.scd; drums never do. Bass and pad read the
+// cycle's captured progression module (a pick never switches them mid-cycle), and
+// a module with chord data and no generator for the role is played by the core's
+// default bass or pad. Arp and lead rows are mapped onto the entry's chord (D-01,
+// D-02) unless the entry is classic's (left untouched, byte for byte) or the
+// melody's own generator declares ownHarmony: true (it reads plan[\chord] itself;
+// rows that came from the classic fallback are always mapped).
+//
+// entry is optional: the layers call the 4-argument form and the renderer pulls
+// it; a caller may pass one.
+~ppRenderBar = { |role, songBar, bar, layerState, entry|
+	var cat, mod, key, gen, res, inst, plan, out, drum, failure, classicMod, fb, fromOwn;
 	inst = ~ppInstrumentFor.(role);
 	drum = ~ppDrumGrid[role];
 	if (drum.notNil) {
@@ -142,12 +172,25 @@
 		out
 	} {
 		cat = ~ppRoleCategory[role];
-		mod = ~ppModuleFor.(cat);
+		if (entry.isNil) {
+			entry = try {
+				~ppHarmonyFor.(bar, songBar)
+			} { |err|
+				~ppLog.("PedalPulse ERROR: harmony for bar % failed: % -- classic harmony".format(bar, err.errorString));
+				~ppHarmClassicEntry.()
+			};
+		};
 		classicMod = ~ppLib[cat][\classic];
+		mod = if ((role == \bass) or: { role == \pad }) {
+			entry[\mod] ? classicMod
+		} {
+			~ppModuleFor.(cat)
+		};
 		key = if (mod.notNil) { [mod[\name], mod[\rev]] } { nil };
-		plan = ~ppPlanFor.(bar, songBar, role);
+		plan = ~ppPlanFor.(bar, songBar, role, entry);
 		failure = nil;
 		res = nil;
+		fromOwn = false;
 		// A different module (or a reload of the same one) starts with a fresh state.
 		if (key != layerState[\moduleKey]) {
 			layerState[\state] = ();
@@ -166,14 +209,19 @@
 			failure = layerState[\initError];
 		} {
 			gen = if (mod.notNil) { mod[role] } { nil };
+			if (gen.isFunction.not and: { (role == \bass) or: { role == \pad } } and: { mod.notNil } and: { mod[\chords].notNil }) {
+				// Chord data without its own part: the core plays it.
+				gen = if (role == \bass) { ~ppDefaultBass } { ~ppDefaultPad };
+			};
 			if (gen.isFunction) {
 				res = ~ppRunGenerator.(gen, plan, layerState[\state], role, songBar);
-				if (res[\reason].notNil) { failure = res[\reason] };
+				if (res[\reason].notNil) { failure = res[\reason] } { fromOwn = true };
 			};
 		};
 		if (failure.notNil) {
 			~ppRenderFail.(cat, mod, role, bar, failure);
 			res = nil;
+			fromOwn = false;
 		};
 		if (res.isNil) {
 			// Either this bar failed, or the module has no generator for the role:
@@ -185,6 +233,17 @@
 			};
 		};
 		out = if (res.notNil) { res[\rows] } { [[\rest, 4, 0, 1]] };
+		// Arp and lead follow the bar's chord (not under classic's own harmony).
+		if (((role == \arp) or: { role == \lead }) and: { entry[\classic] != true } and: { res.notNil }) {
+			if ((fromOwn and: { mod[\ownHarmony] == true }).not) {
+				out = try {
+					~ppFollowRows.(out, entry[\chord])
+				} { |err|
+					~ppLog.("PedalPulse ERROR: chord following of % bar % failed: % -- silent bar".format(role, bar, err.errorString));
+					[[\rest, 4, 0, 1]]
+				};
+			};
+		};
 		out = out.collect { |r| [inst] ++ r };
 		~ppRoleNotes[role] = (~ppRoleNotes[role] ? 0) + out.count { |r| r[1] != \rest };
 		out
