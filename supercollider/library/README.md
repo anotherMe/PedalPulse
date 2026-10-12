@@ -11,7 +11,7 @@ has three folders:
 
 Each `.scd` file in a folder is one named variation. Its file name without
 `.scd` is its name everywhere: in the post window, over OSC, and in the app's
-selectors from Phase 5 on. `classic.scd` in each folder is the original sound,
+dropdowns. `classic.scd` in each folder is the original sound,
 so picking `classic` always brings it back. Right now the library holds
 `progressions/classic`, `melodies/classic`, `melodies/classic_lead` (the classic
 arp plus a faint lead one octave up) and `palettes/classic`.
@@ -31,6 +31,30 @@ plays classic for now).
 The `_template.scd` file in each folder is an example for writing a new file.
 Copy it to a new name and change the copy. A `_template.scd` can never be
 selected.
+
+## Pick a variation from the app
+
+The PedalPulse window has a column on the right with three dropdowns: Palette,
+Progression and Melody. Each one starts on Auto. When you open a dropdown it
+lists Auto, then `classic`, then every other file in its folder from A to Z,
+by file name without `.scd`. Files whose names start with `_` (such as
+`_template`) never appear.
+
+A name longer than 20 characters is cut short on the closed dropdown, but it
+always shows in full when the dropdown is open.
+
+Opening a dropdown reads the folder again, so a file you just added is there to
+pick with no restart. A file you removed is gone from the list the next time
+you open it.
+
+Picking a name sends it to the engine. The engine switches at the next bar line
+and prints a line in the SuperCollider post window.
+
+Picking the name that is already selected does nothing. To hear a file again
+after you changed it, pick another name and then pick it back, or use the
+one-liner below.
+
+The app always starts on Auto; it does not remember what you picked last time.
 
 ## Try a variation while the music plays
 
