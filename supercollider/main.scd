@@ -167,6 +167,11 @@ s.waitForBoot({
 			};
 		};
 	};
+	// Auto's order is drawn from this seed (chosen once per interpreter): note it
+	// so a heard order can be replayed. A stored auto selection needs the other
+	// progression files in the registry, which was just rebuilt with classic only.
+	~ppLog.("PedalPulse: progression auto seed %".format(~ppAutoSeed));
+	if (~ppSel[\progressions] == \auto) { ~ppAutoPrefetch.value };
 
 	s.sync;
 

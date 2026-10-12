@@ -165,6 +165,58 @@
 	ok
 };
 
+// --- Auto prefetch (D-10, LIB-05) ---
+// Auto may choose any progression file on disk, including one added while the
+// engine runs. The layer that decides a cycle never waits for disk, so each Auto
+// pick starts ONE background scan of the progressions folder on SystemClock; a
+// file it registers is a candidate from the next pick. Every scanned name passes
+// ~ppStemValid before a path is built and loads only through ~ppLibEnsure
+// (containment, validation, one registry put). A file that failed to load is
+// remembered with its modification time (path -> mtime), so a broken file is
+// read and reported once per change of the file, not at every pick. The scan
+// never sets ~ppSel and never reloads a stem that is already registered (an
+// explicit pick does that). It is capped at 256 files and runs one at a time.
+~ppAutoFailed = ~ppAutoFailed ? Dictionary.new;
+~ppAutoPrefetching = false;
+~ppAutoPrefetch = {
+	var env;
+	if (~ppAutoPrefetching != true) {
+		~ppAutoPrefetching = true;
+		env = currentEnvironment;
+		Routine({
+			env.use {
+				try {
+					var paths;
+					paths = (~ppLibRoot +/+ "progressions" +/+ "*.scd").pathMatch;
+					paths.keep(256).do { |path|
+						var stem, mtime, ok;
+						stem = PathName(path).fileNameWithoutExtension;
+						if (~ppStemValid.(stem) and: { ~ppLib[\progressions][stem.asSymbol].isNil }) {
+							mtime = File.mtime(path);
+							if (~ppAutoFailed[path] != mtime) {
+								ok = try {
+									~ppLibEnsure.(\progressions, stem.asSymbol)
+								} { |err|
+									~ppLog.("PedalPulse ERROR: progression % failed to load: %".format(path, err.errorString));
+									false
+								};
+								if (ok == true) {
+									~ppAutoFailed.removeAt(path);
+								} {
+									~ppAutoFailed[path] = mtime;
+								};
+							};
+						};
+					};
+				} { |err|
+					~ppLog.("PedalPulse ERROR: progression scan failed: %".format(err.errorString));
+				};
+				~ppAutoPrefetching = false;
+			};
+		}).play(SystemClock);
+	};
+};
+
 // --- Selection by name (LIB-02, LIB-05) ---
 // Latest wins: a request number per category. A request that finishes loading
 // after a newer one was made (or after `auto`) does not become the selection.
@@ -189,7 +241,12 @@
 			// Supersedes any load still in flight for this category.
 			~ppSelReq[cat] = ~ppSelReq[cat] + 1;
 			~ppSel[cat] = \auto;
-			~ppLog.("PedalPulse: % auto -> auto (resolves to classic)".format(address));
+			if (cat == \progressions) {
+					~ppLog.("PedalPulse: % auto -> auto (rotates progressions at cycle ends; a Start begins on classic)".format(address));
+					~ppAutoPrefetch.value;
+				} {
+					~ppLog.("PedalPulse: % auto -> auto (resolves to classic)".format(address));
+				};
 		} {
 			if (~ppStemValid.(str).not) {
 				// No path is ever built from an invalid name.

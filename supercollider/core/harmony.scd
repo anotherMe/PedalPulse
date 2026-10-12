@@ -45,6 +45,12 @@
 // How many song bars the memo keeps, and how many cycles the cycle log keeps.
 ~ppHarmKeepBars = ~ppHarmKeepBars ? 64;
 ~ppHarmLogCap = ~ppHarmLogCap ? 256;
+// Auto (D-08, D-10): how many bars Auto holds one progression, as [low, high] (a
+// whole number of cycles that adds up to about this many), the seed that makes the
+// order of an engine's rides replayable, and how many past picks Auto remembers.
+~ppAutoHoldBars = ~ppAutoHoldBars ? [32, 64];
+~ppAutoSeed = ~ppAutoSeed ? (Date.getDate.rawSeconds % 1000000).asInteger;
+~ppAutoHistoryCap = 8;
 
 // --- Chords ---
 // A chord record: (rootPc:, intervals:, pcs:, name:, extraPcs:). rootPc and pcs
@@ -183,17 +189,108 @@
 	)
 };
 
+// --- Auto (D-08, D-09, D-10, D-11) ---
+// The state lives in ~ppHarm[\auto] = (current:, holdLeft:, history:, picks:), so a
+// new run (Start, restart) begins a new rotation, always on classic (D-09).
+
+// -> the candidates for Auto's next pick, sorted by name (Dictionary order is not
+// stable): every registered progression with a valid name whose file is in the
+// current library root and that has not failed 3 times while playing.
+~ppAutoCandidates = {
+	var errs, names;
+	errs = if (~ppRenderErrors.notNil) { ~ppRenderErrors[\progressions] } { nil };
+	errs = errs ? ();
+	names = ~ppLib[\progressions].keys.asArray.collect { |k| k.asString }.sort;
+	names.select { |n|
+		~ppStemValid.(n)
+			and: { File.exists(~ppLibPath.(\progressions, n)) }
+			and: { (errs[n.asSymbol] ? 0) < 3 }
+	}.collect { |n| n.asSymbol }
+};
+
+// cycleStart -> the stem Auto plays for the cycle that starts there. Called by
+// ~ppHarmDecide on the previous cycle's last bar (or at a run start), so a change
+// only ever lands at the end of a cycle.
+//  - Engage (no current, or a named pick moved the music since): adopt the
+//    progression that is ending, or classic at a run start (D-09), and hold it for
+//    a fresh hold. This is the planner decision for RESEARCH Open Question 4.
+//  - Hold: keep the current progression while hold cycles are left.
+//  - Pick: a seeded random choice among the candidates, never the current one and
+//    never one of the last two played (D-10); then a new hold.
+// The hold is H = max(1, round(rrand(lo, hi) / cycleLen)) whole cycles. Randomness
+// is only the calling thread's seed, set right before each draw; the layers'
+// generators re-seed their own thread, so nothing leaks (RESEARCH Pitfall 6).
+~ppHarmAutoNext = { |cycleStart|
+	var a, ending, endStem, cur, cands, recent, pool, stem, seedFor, holdFor;
+	a = ~ppHarm[\auto];
+	ending = ~ppHarm[\cycle];
+	endStem = if (ending.notNil) { ending[\stem] } { nil };
+	seedFor = {
+		thisThread.randSeed = ((~ppAutoSeed * 1000003) + (a[\picks] * 7919) + 104729) & 0x7FFFFFFF;
+		a[\picks] = a[\picks] + 1;
+	};
+	holdFor = { |st|
+		var len = ~ppHarmCycle.(st, ~ppLib[\progressions][st])[\len];
+		max(1, (rrand(~ppAutoHoldBars[0].asFloat, ~ppAutoHoldBars[1].asFloat) / len).round.asInteger)
+	};
+	cur = a[\current];
+	cands = ~ppAutoCandidates.value;
+	if (cur.isNil or: { cur != endStem }) {
+		// Engage.
+		stem = endStem ? \classic;
+		seedFor.value;
+		a[\holdLeft] = holdFor.(stem) - 1;
+		a[\current] = stem;
+		a[\history].add(stem);
+		while { a[\history].size > ~ppAutoHistoryCap } { a[\history].removeAt(0) };
+		~ppAutoPrefetch.value;
+	} {
+		if ((a[\holdLeft] > 0) and: { cands.includes(cur) }) {
+			a[\holdLeft] = a[\holdLeft] - 1;
+			stem = cur;
+		} {
+			// Pick. asArray.keep(-2), never List.last(2) (RESEARCH Pitfall 7).
+			recent = a[\history].asArray.keep(-2);
+			pool = cands.reject { |c| (c == cur) or: { recent.includes(c) } };
+			if (pool.isEmpty) { pool = cands.reject { |c| c == cur } };
+			seedFor.value;
+			stem = if (pool.isEmpty) { cur } { pool.choose };
+			a[\holdLeft] = holdFor.(stem) - 1;
+			a[\current] = stem;
+			a[\history].add(stem);
+			while { a[\history].size > ~ppAutoHistoryCap } { a[\history].removeAt(0) };
+			~ppAutoPrefetch.value;
+		};
+	};
+	stem
+};
+
 // cycleStart -> the cycle that starts at that song bar, with \start set. The
-// selected progression when it is a loaded Symbol other than \auto; anything else
-// (nil, \auto, not loaded) is classic. The module is captured from ~ppLib now.
-// A planning error is logged and classic harmony plays instead.
+// selected progression when it is a loaded Symbol other than \auto; on \auto the
+// progression Auto chose (~ppHarmAutoNext); anything else (nil, not loaded) is
+// classic. The module is captured from ~ppLib now. A planning error is logged and
+// classic harmony plays instead.
 ~ppHarmDecide = { |cycleStart|
-	var sel, stem = \classic, mod, cyc;
+	var sel, stem = \classic, mod, cyc, auto;
 	sel = if (~ppSel.notNil) { ~ppSel[\progressions] } { nil };
 	mod = if (~ppLib.notNil) { ~ppLib[\progressions][\classic] } { nil };
-	if (sel.isKindOf(Symbol) and: { (sel != \auto) and: { ~ppLib.notNil and: { ~ppLib[\progressions][sel].notNil } } }) {
-		stem = sel;
-		mod = ~ppLib[\progressions][sel];
+	auto = (sel == \auto) and: { ~ppHarm.notNil and: { ~ppHarm[\auto].notNil and: { ~ppLib.notNil } } };
+	if (auto) {
+		stem = try {
+			~ppHarmAutoNext.(cycleStart)
+		} { |err|
+			~ppLog.("PedalPulse ERROR: Auto progression pick failed: % -- playing classic".format(err.errorString));
+			\classic
+		};
+		if (~ppLib[\progressions][stem].isNil) { stem = \classic };
+		mod = ~ppLib[\progressions][stem];
+	} {
+		if (sel.isKindOf(Symbol) and: { (sel != \auto) and: { ~ppLib.notNil and: { ~ppLib[\progressions][sel].notNil } } }) {
+			stem = sel;
+			mod = ~ppLib[\progressions][sel];
+		};
+		// A named pick ends Auto's hold: a later Auto adopts what plays then.
+		if (~ppHarm.notNil and: { ~ppHarm[\auto].notNil }) { ~ppHarm[\auto][\current] = nil };
 	};
 	cyc = try {
 		~ppHarmCycle.(stem, mod)
@@ -207,7 +304,7 @@
 
 // --- The memo ---
 // ~ppHarm is the running schedule: (sig:, entries:, last:, cycle:, pending:,
-// voicing:, cycleLog:, lastStem:). Only this module and ~ppHarmReset write it.
+// voicing:, cycleLog:, lastStem:, auto:). Only this module and ~ppHarmReset write it.
 // A restart (main.scd's ~ppStart and teardown) calls ~ppHarmReset so a Start
 // always begins a new run at the selected progression's first chord.
 ~ppHarmReset = { ~ppHarm = nil };
@@ -232,7 +329,8 @@
 	if (h.isNil or: { (h[\sig][0] !== clock) or: { h[\sig][1] != base } }) {
 		h = (
 			sig: [clock, base], entries: Dictionary.new, last: nil, cycle: nil,
-			pending: nil, voicing: nil, cycleLog: List.new, lastStem: nil
+			pending: nil, voicing: nil, cycleLog: List.new, lastStem: nil,
+			auto: (current: nil, holdLeft: 0, history: List.new, picks: 0)
 		);
 		~ppHarm = h;
 	};
@@ -256,7 +354,9 @@
 					h[\cycle] = ~ppHarmDecide.(b);
 				} {
 					if (b == (h[\cycle][\start] + h[\cycle][\len])) {
-						h[\cycle] = h[\pending] ? ~ppHarmDecide.(b);
+						// An explicit if: `?` evaluates its argument eagerly, and a decision now
+						// has side effects (Auto's hold and history).
+						h[\cycle] = if (h[\pending].notNil) { h[\pending] } { ~ppHarmDecide.(b) };
 						h[\pending] = nil;
 					};
 				};
