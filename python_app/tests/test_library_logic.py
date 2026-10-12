@@ -252,6 +252,23 @@ def test_failed_initial_send_can_be_retried_by_picking_auto(tmp_path):
     assert sent == ["auto", "auto"]
 
 
+def test_listener_exception_does_not_skip_the_send(tmp_path):
+    selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
+
+    def boom(_label):
+        raise RuntimeError("listener failed")
+
+    selector.add_listener(boom)
+
+    with pytest.raises(RuntimeError):
+        selector.select("classic")
+
+    assert sent == ["classic"]
+    assert selector.selected == "classic"
+    selector.select("classic")  # sent fine: D-05, no resend
+    assert sent == ["classic"]
+
+
 def test_name_not_on_disk_is_still_sent(tmp_path):
     selector, sent = _make_selector(_folder_with(tmp_path, "classic"))
 

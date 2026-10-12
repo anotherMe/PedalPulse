@@ -116,10 +116,16 @@ class LibrarySelector:
         if retry and self._last_send_ok:
             return
         self._selected = label
-        if not retry:
-            for fn in self._listeners:
-                fn(label)
-        self._last_send_ok = self._send(to_wire(label)) is not False
+        self._last_send_ok = False
+        try:
+            if not retry:
+                for fn in self._listeners:
+                    fn(label)
+        finally:
+            # A listener that raises (e.g. a TclError from the Tk variable)
+            # must not stop the send: the choice is recorded, so it is sent
+            # (WR-02). The exception still propagates after the send.
+            self._last_send_ok = self._send(to_wire(label)) is not False
 
     def send_initial(self) -> None:
         """Send the current choice once, without notifying (D-04)."""
