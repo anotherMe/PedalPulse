@@ -390,8 +390,9 @@ s.waitForBoot({
 	// --- OSC control: /pp/progression, /pp/palette, /pp/melody <string> (LIB-02, LIB-05) ---
 	// Loopback-only, same srcID guard as the four addresses above. The argument
 	// is `auto` or a library file stem. The handler only validates and
-	// delegates: the file is read in a background Routine and the switch lands
-	// on the next bar line. Loading and s.sync never happen in the responder
+	// delegates: the file is read in a background Routine. A progression
+	// switches at the end of the current progression cycle (core/harmony.scd);
+	// a palette or melody at the next bar line. Loading and s.sync never happen in the responder
 	// (ARCHITECTURE Anti-Pattern 4). Re-sending the current name reloads its
 	// file. Nothing is ever sent back. These three addresses and the
 	// auto-or-stem argument are the frozen interface Phase 5's GUI uses.

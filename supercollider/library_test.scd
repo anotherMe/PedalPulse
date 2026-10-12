@@ -1264,6 +1264,101 @@ fork({
 				checkOk.(name);
 			}.value;
 
+			// 10. named progression switches at the cycle end (HARM-04): a pick in the
+			// middle of a cycle waits for the cycle boundary and then stays.
+			{
+				var name = "named progression switches at the cycle end";
+				var rc, rws, before, names, cyc, fresh, s1, s2, lines, i;
+				names = ["Am", "F", "C", "G"];
+				sendSel.('/pp/progression', 'anthem');
+				sendSel.('/pp/melody', 'classic_lead');
+				if (waitFor.({ (~ppSel[\progressions] == \anthem) and: { ~ppSel[\melodies] == \classic_lead } }, 3).not) {
+					fail.(name, "the selections never became anthem and classic_lead: %".format(~ppSel));
+				};
+				before = ~ppLogCount;
+				rc = recordBars.(20, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 22) } { 0.02.wait };  // bar 5, inside the second anthem cycle
+					sendSel.('/pp/progression', 'classic');
+					if (waitFor.({ ~ppSel[\progressions] == \classic }, 3).not) {
+						fail.(name, "~ppSel[\\progressions] never became classic");
+					};
+					while { recClock.beats < (startBeat + 54) } { 0.02.wait };  // bar 13
+					sendSel.('/pp/progression', 'anthem');
+					if (waitFor.({ ~ppSel[\progressions] == \anthem }, 3).not) {
+						fail.(name, "~ppSel[\\progressions] never became anthem again");
+					};
+				});
+				rws = rc[\rows];
+				cyc = ~ppHarmCycleLog.();
+				// Contiguous cycles from bar 0.
+				cyc.do { |c, k|
+					if (k == 0) {
+						if (c[\start] != 0) { fail.(name, "the first cycle starts at %, not 0: %".format(c[\start], cyc)) };
+					} {
+						if (c[\start] != (cyc[k - 1][\start] + cyc[k - 1][\len])) {
+							fail.(name, "cycle % starts at %, not at the end of the previous one: %".format(k, c[\start], cyc));
+						};
+					};
+				};
+				if ((cyc[0][\stem] != \anthem) or: { cyc[1][\stem] != \anthem } or: { cyc[1][\start] != 4 }) {
+					fail.(name, "the first two cycles are not anthem at 0 and 4: %".format(cyc));
+				};
+				i = cyc.detectIndex { |c| c[\stem] == \classic };
+				if (i.isNil) { fail.(name, "no classic cycle after the pick: %".format(cyc)) };
+				s1 = cyc[i][\start];
+				if ((s1 != 8) and: { s1 != 12 }) {
+					fail.(name, "the classic cycle starts at bar %, not on a cycle boundary (8 or 12): %".format(s1, cyc));
+				};
+				i = cyc.detectIndex { |c| (c[\start] > s1) and: { c[\stem] == \anthem } };
+				if (i.isNil) { fail.(name, "anthem never came back after the second pick: %".format(cyc)) };
+				s2 = cyc[i][\start];
+				if ((s2 < 14) or: { s2 > 16 }) {
+					fail.(name, "anthem came back at bar %, expected 14 to 16: %".format(s2, cyc));
+				};
+				cyc.do { |c|
+					if ((c[\start] >= s1) and: { c[\start] < s2 } and: { c[\stem] != \classic }) {
+						fail.(name, "cycle at bar % is % between the picks, expected classic: %".format(c[\start], c[\stem], cyc));
+					};
+					if ((c[\start] >= s2) and: { c[\stem] != \anthem }) {
+						fail.(name, "cycle at bar % is % after the second pick, expected anthem (it stays): %".format(c[\start], c[\stem], cyc));
+					};
+					if ((c[\start] >= s2) and: { ((c[\start] - s2) % 4) != 0 }) {
+						fail.(name, "the anthem cycle at bar % is not S2 + 4k (S2 = %): %".format(c[\start], s2, cyc));
+					};
+				};
+				20.do { |b|
+					var e = ~ppHarmonyEntry.(b), wantStem, wantChord;
+					if (e.isNil) { fail.(name, "no harmony entry for bar %".format(b)) };
+					if (b < s1) {
+						wantStem = \anthem; wantChord = names[b % 4];
+					} {
+						if (b < s2) {
+							wantStem = \classic; wantChord = "Am";
+						} {
+							wantStem = \anthem; wantChord = names[(b - s2) % 4];
+						};
+					};
+					if ((e[\progression] != wantStem) or: { e[\chord][\name] != wantChord }) {
+						fail.(name, "bar % plays % %, expected % %".format(b, e[\progression], e[\chord][\name], wantStem, wantChord));
+					};
+				};
+				harmonyCheck.(name, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
+				fresh = newLogs.(before);
+				lines = fresh.select { |l| l.beginsWith("PedalPulse: progression ") };
+				if (lines != ["PedalPulse: progression anthem: Am F C G", "PedalPulse: progression classic: Am", "PedalPulse: progression anthem: Am F C G"]) {
+					fail.(name, "the progression lines are %".format(lines));
+				};
+				if (fresh.any { |l| l.find("switches at the end of the current progression cycle").notNil }.not) {
+					fail.(name, "no 'switches at the end of the current progression cycle' line in %".format(fresh));
+				};
+				sendSel.('/pp/progression', 'classic');
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ (~ppSel[\progressions] == \classic) and: { ~ppSel[\melodies] == \classic } }, 3).not) {
+					fail.(name, "selections did not return to classic: %".format(~ppSel));
+				};
+				checkOk.(name);
+			}.value;
+
 			// The tier leaves every category on classic.
 			~ppLibCategories.do { |c|
 				if (~ppSel[c] != \classic) {

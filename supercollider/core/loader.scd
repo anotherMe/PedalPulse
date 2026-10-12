@@ -174,9 +174,11 @@
 // \palettes; raw is whatever the message carried (OSC strings arrive as
 // Symbols); address is only used in log lines. It validates, then loads in a
 // background Routine on SystemClock: the OSC responder never waits and never
-// calls s.sync. ~ppSel[cat] is set only after a successful load, and the
-// per-bar renderer reads it at the start of each bar, so the music switches on
-// the next bar line. Nothing is ever sent back.
+// calls s.sync. ~ppSel[cat] is set only after a successful load. Palettes and
+// melodies are read by the per-bar renderer at the start of each bar, so the
+// music switches on the next bar line. Progressions are read at the next cycle
+// decision (core/harmony.scd), so a progression pick switches at the end of the
+// current progression cycle, never mid-cycle. Nothing is ever sent back.
 ~ppSelect = { |cat, raw, address|
 	var str, token, env;
 	if (raw.isKindOf(Symbol).not and: { raw.isKindOf(String).not }) {
@@ -209,7 +211,11 @@
 							if (token == ~ppSelReq[cat]) {
 								~ppSel[cat] = str.asSymbol;
 								mod = ~ppLib[cat][str.asSymbol];
-								~ppLog.("PedalPulse: % % -> selected (rev %), plays from the next bar".format(address, str, mod[\rev]));
+								if (cat == \progressions) {
+									~ppLog.("PedalPulse: % % -> selected (rev %), switches at the end of the current progression cycle".format(address, str, mod[\rev]));
+								} {
+									~ppLog.("PedalPulse: % % -> selected (rev %), plays from the next bar".format(address, str, mod[\rev]));
+								};
 							} {
 								~ppLog.("PedalPulse: % % loaded but superseded by a newer selection".format(address, str));
 							};
