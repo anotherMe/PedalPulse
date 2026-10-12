@@ -3,6 +3,18 @@ phase: 05
 review: 05-REVIEW.md
 titles: json
 findings:
+  - id: IN-01
+    severity: info
+    disposition: open
+    title: "README says the `desc` line is \"at the top\" of every file, but it is not"
+  - id: IN-02
+    severity: info
+    disposition: open
+    title: "`--exit-after` with a negative value is silently ignored unless `--hidden` is given"
+  - id: IN-03
+    severity: info
+    disposition: open
+    title: "README one-liners hard-code `.venv/bin/python` and port 57120"
   - id: WR-01
     severity: warning
     disposition: fixed
@@ -11,18 +23,6 @@ findings:
     severity: warning
     disposition: fixed
     title: "`--hidden` without `--exit-after` starts an app nobody can see or close"
-  - id: IN-01
-    severity: info
-    disposition: open
-    title: "`scan_library` lists symlinks the engine will refuse"
-  - id: IN-02
-    severity: info
-    disposition: open
-    title: "Redundant checks in `scan_library`"
-  - id: IN-03
-    severity: info
-    disposition: open
-    title: "README sort-order wording is looser than the code"
   - id: IN-04
     severity: info
     disposition: open
@@ -33,19 +33,19 @@ findings:
     title: "`test_main_launch` opens a real, visible window and steals focus (twice per run)"
 open: 4
 total: 7
-recorded: 2026-10-12T13:39:51.463Z
+recorded: 2026-10-12T13:46:09.246Z
 ---
 
 # Phase 05: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | fixed | 05-REVIEW-FIX.md |
-| WR-02 | warning | fixed | 05-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
-| IN-04 | info | open | - |
+| WR-01 | warning | fixed | 05-REVIEW-FIX.md (not in the current review) |
+| WR-02 | warning | fixed | 05-REVIEW-FIX.md (not in the current review) |
+| IN-04 | info | open | - (not in the current review) |
 | WR-03 | warning | fixed | 05-REVIEW-FIX.md (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
