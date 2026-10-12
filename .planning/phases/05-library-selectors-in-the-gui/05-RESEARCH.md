@@ -444,17 +444,20 @@ def test_scan_missing_or_file_folder_is_empty(tmp_path):
 | A2 | Native macOS popup shows a checkmark next to the radiobutton entry bound to the current variable value | Pattern 3 | Cosmetic only (no checkmark); selection behaviour is unaffected |
 | A3 | Rebuilding menu entries inside `postcommand` is reflected in the native menu that appears (the Tk man page does not discuss modifying entries there; the post-commands run before posting) | Pattern 3 | New files would appear one open late. Same mitigation as A1 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should a `LibrarySelector` accept a name not in the current scan?**
    - What we know: the engine is the validator and the file can vanish; CONTEXT.md says the label stays and the GUI must not crash.
    - Recommendation: yes, accept any non-empty string in `select()`. The menu itself only offers scanned names, so this path is only reachable programmatically/in tests.
+   - RESOLVED: yes, adopted. 05-01-PLAN.md Task 1 step 2 builds `select()` so it ignores only a non-str, empty or unchanged label and does NOT check the label against the scan. 05-02-PLAN.md Task 2 step 1 pins it with `test_name_not_on_disk_is_still_sent` (`select("not_on_disk")` is sent as-is) and `test_empty_or_non_string_pick_is_ignored`.
 
 2. **Should `osc_client.py`'s raw-send CLI get `--palette/--progression/--melody` flags?**
    - What we know: the library README already gives a Python one-liner that can send an unknown name for success criterion 3; the user prefers minimal scope.
    - Recommendation: skip. Optional only.
+   - RESOLVED: skipped. 05-01-PLAN.md Task 1 step 3 adds only `send_selection()` and says "Add no CLI flags (RESEARCH Open Question 2: skipped)". 05-02-PLAN.md Task 2 step 3 repeats "Add no CLI flags to osc_client.py".
 
 3. **Documentation touch-up.** `supercollider/library/README.md` says the app's selectors arrive in Phase 5; a one-line update after the phase ships is nice to have but not required (the README is not a committed-never-edit library file; the guard only covers `library/*/[a-z0-9]*.scd`, see scripts/check.sh).
+   - RESOLVED: done in this phase. 05-03-PLAN.md Task 2 step 2 replaces "in the app's selectors from Phase 5 on" and adds a plain-words "## Pick a variation from the app" section before "## Try a variation while the music plays". The task's acceptance criteria and automated verify check for the new heading and the "already selected" note.
 
 ## Environment Availability
 
