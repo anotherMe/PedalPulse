@@ -747,3 +747,58 @@ def test_missing_folder_shows_auto_only_after_reopen(tk_root, tmp_path):
     _post(tk_root, menu)
 
     assert _labels(menu) == ["Auto"]
+
+
+# --- Keyboard focus (GUI-07) ----------------------------------------------
+
+
+def _seed_two_each(tmp_path: Path) -> Path:
+    for folder in ("palettes", "progressions", "melodies"):
+        (tmp_path / folder).mkdir()
+        for stem in ("classic", "other"):
+            (tmp_path / folder / f"{stem}.scd").write_text("()")
+    return tmp_path
+
+
+def test_dropdowns_take_no_focus_and_add_no_key_bindings(tk_root, tmp_path):
+    window = _build_all(tk_root, library_root=_seed_two_each(tmp_path)).window
+
+    for title in ("Palette", "Progression", "Melody"):
+        assert str(window.library_buttons[title]["takefocus"]) == "0"
+        for seq in ("<Up>", "<Down>", "<Shift-Up>", "<Shift-Down>"):
+            assert window.library_buttons[title].bind(seq) == ""
+            assert window.library_menus[title].bind(seq) == ""
+    for seq in ("<Up>", "<Down>", "<Shift-Up>", "<Shift-Down>"):
+        assert tk_root.bind(seq)
+
+
+def test_arrow_keys_still_nudge_bpm_after_using_each_dropdown(tk_root, tmp_path):
+    all_ = _build_all(tk_root, library_root=_seed_two_each(tmp_path))
+    window = all_.window
+    controller = all_.controller
+
+    library_widgets = set(map(str, window.library_buttons.values())) | set(
+        map(str, window.library_menus.values())
+    )
+    for title in ("Palette", "Progression", "Melody"):
+        menu = window.library_menus[title]
+        # Entry 0 is Auto (selected); entry 2 is "other", a real change.
+        menu.invoke(2)
+        focused = tk_root.focus_get()
+        assert focused is None or str(focused) not in library_widgets
+
+    tk_root.focus_force()
+    pump(tk_root, 100)
+    for seq, expected in (
+        ("<Up>", 121),
+        ("<Down>", 120),
+        ("<Shift-Up>", 125),
+        ("<Shift-Down>", 120),
+    ):
+        tk_root.event_generate(seq)
+        pump(tk_root, 300)
+        assert controller.value == expected
+
+    assert all_.sent == [121.0, 120.0, 125.0, 120.0]
+    for title in ("Palette", "Progression", "Melody"):
+        assert all_.selector_sent[title] == ["other"]
