@@ -93,8 +93,10 @@ Plans:
 **Wave 1**
 - [ ] 05-01-PLAN.md — Tracer: a Melody pick in the window reaches the engine over UDP; then Palette, Progression and Melody in a right-hand column, with auto sent to all three at launch
 
-**Wave 2** *(blocked on Wave 1 completion; 05-02 and 05-03 run in parallel, no shared files)*
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 05-02-PLAN.md — The dropdowns only offer names the engine accepts (test-first scan rule); the send-on-change and never-crash send contracts proven
+
+**Wave 3** *(blocked on Wave 2 completion; no shared files with 05-02, but its full-suite gate runs 05-02's tests, so it waits for 05-02's GREEN commit)*
 - [ ] 05-03-PLAN.md — A new file appears when a dropdown is opened; the BPM keys keep working (GUI-07); README section; engine library check; the rider's end-of-phase selector check
 **UI hint**: yes
 
