@@ -38,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Start with the window withdrawn (no window shown, no focus taken; used by automated launch checks)",
     )
     args = parser.parse_args(argv)
+    if args.hidden and args.exit_after <= 0:
+        parser.error("--hidden requires --exit-after > 0 (otherwise the window can never be closed)")
 
     tkinter = tkcheck.check_tk_compatible()  # exits 1 before any python-osc import on a broken Tk
 
