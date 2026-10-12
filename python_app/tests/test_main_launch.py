@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from pythonosc.osc_message import OscMessage
 
 REPO = Path(__file__).resolve().parents[2]
@@ -28,10 +29,32 @@ EXPECTED = [
 ]
 
 
+def _display_available() -> bool:
+    """True when a throwaway Tk root can be created (withdrawn, so nothing is shown)."""
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import tkinter; r = tkinter.Tk(); r.withdraw(); r.destroy()",
+        ],
+        capture_output=True,
+        timeout=30,
+    )
+    return probe.returncode == 0
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _need_display():
+    # The probe is independent of main.py, so a real startup regression still
+    # fails the test; only an environment with no usable Tk display skips.
+    if not _display_available():
+        pytest.skip("no Tk display available for the launch test")
+
+
 def _launch_and_capture(sock: socket.socket) -> list[tuple[str, list]]:
     port = sock.getsockname()[1]
     result = subprocess.run(
-        [sys.executable, str(REPO / "python_app" / "main.py"), "--port", str(port), "--exit-after", "300"],
+        [sys.executable, str(REPO / "python_app" / "main.py"), "--port", str(port), "--exit-after", "300", "--hidden"],
         capture_output=True,
         text=True,
         timeout=30,

@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
         default=0,
         help="Destroy the window after this many ms (0 = never; used by automated launch checks)",
     )
+    parser.add_argument(
+        "--hidden",
+        action="store_true",
+        help="Start with the window withdrawn (no window shown, no focus taken; used by automated launch checks)",
+    )
     args = parser.parse_args(argv)
 
     tkinter = tkcheck.check_tk_compatible()  # exits 1 before any python-osc import on a broken Tk
@@ -76,6 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     volume.send_initial()
     for selector in selectors:
         selector.send_initial()
+
+    if args.hidden:
+        root.withdraw()
 
     if args.exit_after > 0:
         root.after(args.exit_after, root.destroy)
