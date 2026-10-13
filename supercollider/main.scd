@@ -172,6 +172,9 @@ s.waitForBoot({
 	// progression files in the registry, which was just rebuilt with classic only.
 	~ppLog.("PedalPulse: progression auto seed %".format(~ppAutoSeed));
 	if (~ppSel[\progressions] == \auto) { ~ppAutoPrefetch.value };
+// The same for palettes: the registry was just rebuilt with classic only, so the
+// first Auto palette waits for this scan to load the other palette files.
+if (~ppSel[\palettes] == \auto) { ~ppAutoPrefetch.(\palettes) };
 
 	s.sync;
 

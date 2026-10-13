@@ -63,6 +63,19 @@
 ~ppAutoSeed = ~ppAutoSeed ? (Date.getDate.rawSeconds % 1000000).asInteger;
 ~ppAutoHistoryCap = 8;
 ~ppAutoPicks = ~ppAutoPicks ? 0;
+// Palette Auto (Phase 7, D-05): how many song bars Auto holds one palette, as [low,
+// high], and the draw counter of palette picks. ~ppPalAutoPicks is global for the
+// same reason as ~ppAutoPicks (Stop then Start continues the sequence) and has its
+// own seed salt, so palette draws never change the replayable progression order.
+// Real timing, so nobody has to guess: minutes = bars x 4 / BPM. The hold of 80 to
+// 128 bars is 2.9 to 5.7 minutes at 90 to 110 BPM (faster at a higher BPM). With
+// Progression on Auto the change then waits for the next progression change, which
+// adds about 25 bars on average and at most one 64-bar progression stay, so a
+// palette plays about 4.7 to 5.7 minutes on average at 90 to 110 BPM (D-05's 4 to
+// 6) and anywhere from about 2.9 to 8.5 minutes for a single palette. With a named
+// progression the change waits for the end of its round: about 3 to 6 minutes.
+~ppPalHoldBars = ~ppPalHoldBars ? [80, 128];
+~ppPalAutoPicks = ~ppPalAutoPicks ? 0;
 
 // --- Chords ---
 // A chord record: (rootPc:, intervals:, pcs:, name:, extraPcs:). rootPc and pcs
@@ -315,26 +328,185 @@
 	cyc
 };
 
-// --- Palette stage (Phase 7, PAL-03, D-09, D-10, D-11) ---
-// b, cyc, cycleBar, progChanged -> the palette stem the song bar b plays. The
-// selected palette when it is a loaded Symbol other than \auto; anything else
-// (nil, not loaded, and for now \auto) is classic. Plan 04 replaces only the \auto
-// branch. It reads ~ppSel and ~ppLib defensively and has no side effects, so it
-// is safe to call from anywhere the memo is built.
-~ppHarmPaletteFor = { |b, cyc, cycleBar, progChanged|
-	var sel = if (~ppSel.notNil) { ~ppSel[\palettes] } { nil };
-	if (sel.isKindOf(Symbol)
-		and: { sel != \auto }
-		and: { ~ppLib.notNil and: { ~ppLib[\palettes].notNil and: { ~ppLib[\palettes][sel].notNil } } }) {
-		sel
+// --- Palette stage (Phase 7, PAL-02, PAL-03, D-05 to D-11) ---
+// Palette Auto first (D-05 to D-08), then ~ppHarmPaletteFor, the single place that
+// decides the bar's palette (named pick: D-09, D-10, D-11).
+// The state lives in the run: ~ppHarm[\palAuto] = (current:, holdLeft:, history:,
+// soloNoted:), so a Start begins a new rotation. The draw counter ~ppPalAutoPicks
+// is not part of it. Unlike progression Auto, palette Auto does not open on
+// classic: its first pick is random (D-08).
+
+// -> the palettes Auto may pick, sorted by name (Dictionary order is not stable):
+// every registered palette with a valid name whose file is in the current library
+// root. classic stays in (D-08). Palettes never fail at render time, so there is no
+// render-error filter as for progressions.
+~ppPalAutoCandidates = {
+	var names;
+	names = ~ppLib[\palettes].keys.asArray.collect { |k| k.asString }.sort;
+	names.select { |n|
+		~ppStemValid.(n) and: { File.exists(~ppLibPath.(\palettes, n)) }
+	}.collect { |n| n.asSymbol }
+};
+
+// b, cyc, cycleBar, progChanged -> the stem Auto plays for song bar b. Called once
+// per (run, song bar) by ~ppHarmPaletteFor, in bar order.
+//  - chapter: progChanged, a cycle starts with a different progression than the last
+//    one (true on a run's first bar). phraseLine: the cycle starts here and is at
+//    least 4 bars long, or the bar is a multiple of 8 (classic's one-bar cycle would
+//    otherwise allow a change on any bar, which is not a phrase boundary).
+//  - Engage (no current: run start, Auto newly selected, or Auto after a named
+//    pick): at the first bar that is a chapter or a phraseLine while no palette scan
+//    is queued or running, draw from the candidates minus the palette playing
+//    (~ppPalPlaying). Until then the music keeps the palette it plays (classic when
+//    that one is not loaded), and each such bar queues a palette scan so new files
+//    are found. This is explicit exception 1 to D-06, limited to a rotation's
+//    opening pick and made for D-08's "random from the start": a run's first bar is
+//    always a chapter, so after a Start with the files loaded the opening pick is on
+//    a progression change anyway; it lands on a plain round start only on a cold
+//    start (files still loading) or when Auto is selected mid-run. Auto picked after
+//    a named lock does not adopt the locked palette: it draws a different one.
+//  - Rotation: holdLeft counts down once per built bar (song bars, so Stop pauses
+//    it, D-05). A change is due when it is <= 0 or the current palette is no longer
+//    a candidate. With the progression selection \auto it lands only on a chapter
+//    (D-06, exact: progression Auto always changes within its 32-64-bar stay when it
+//    has another candidate, so there is no bar-count fallback). Explicit exception 2,
+//    narrow: progression Auto but no progression other than the playing one can be
+//    picked (evaluated only on cycle-start bars while a change is due), so progression
+//    Auto can never change; the change then lands on a phraseLine as with a named
+//    progression (D-07) and the post window says so once per run. With a named
+//    progression it lands on a chapter or a phraseLine (D-07).
+//  - Pick: candidates minus the current and the last two played (asArray.keep(-2),
+//    never List.last(2)); if empty, minus the current only; if still empty, keep the
+//    current with a new hold. The hold is rrand(lo, hi).round bars. Randomness is
+//    only the calling thread's seed, set right before each draw (the pick with
+//    choose, then the hold with rrand); the layers' generators re-seed their own
+//    thread, so nothing leaks.
+~ppPalAutoNext = { |b, cyc, cycleBar, progChanged|
+	var a, sel, cands, playing, cur, chapter, phraseLine, stem, due, lands, alone, recent, pool;
+	var keepPlaying, drawHold, seedFor, remember, pickFrom;
+	a = ~ppHarm[\palAuto];
+	if (a.isNil) {
+		a = (current: nil, holdLeft: 0, history: List.new, soloNoted: false);
+		~ppHarm[\palAuto] = a;
+	};
+	sel = if (~ppSel.notNil) { ~ppSel[\progressions] } { nil };
+	playing = ~ppPalPlaying;
+	chapter = (progChanged == true);
+	phraseLine = (cycleBar == 0) and: { (cyc[\len] >= 4) or: { (b % 8) == 0 } };
+	cands = ~ppPalAutoCandidates.value;
+	cur = a[\current];
+	// The palette that keeps playing while nothing is drawn.
+	keepPlaying = {
+		if (playing.notNil and: { ~ppLib[\palettes][playing].notNil }) { playing } { \classic }
+	};
+	seedFor = {
+		thisThread.randSeed = ((~ppAutoSeed * 1000003) + (~ppPalAutoPicks * 7919) + 15485863) & 0x7FFFFFFF;
+		~ppPalAutoPicks = ~ppPalAutoPicks + 1;
+	};
+	drawHold = {
+		max(1, rrand(~ppPalHoldBars[0].asFloat, ~ppPalHoldBars[1].asFloat).round.asInteger)
+	};
+	remember = { |st|
+		a[\history].add(st);
+		while { a[\history].size > ~ppAutoHistoryCap } { a[\history].removeAt(0) };
+	};
+	// pool -> the drawn stem (an empty pool keeps the current with a new hold).
+	pickFrom = { |from|
+		var st;
+		seedFor.value;
+		if (from.isEmpty) {
+			st = cur;
+			a[\holdLeft] = drawHold.value;
+		} {
+			st = from.choose;
+			a[\holdLeft] = drawHold.value;
+			a[\current] = st;
+			remember.(st);
+		};
+		~ppAutoPrefetch.(\palettes);
+		st
+	};
+	if (cur.isNil) {
+		// Engage.
+		stem = keepPlaying.value;
+		if (chapter or: { phraseLine }) {
+			if (~ppAutoBusy.(\palettes).not) {
+				pool = cands.reject { |c| c == playing };
+				if (pool.isEmpty) {
+					// Nothing else to play yet: look for new files.
+					~ppAutoPrefetch.(\palettes);
+				} {
+					stem = pickFrom.(pool);
+				};
+			};
+		};
 	} {
-		\classic
-	}
+		// Hold, then rotate.
+		a[\holdLeft] = a[\holdLeft] - 1;
+		due = (a[\holdLeft] <= 0) or: { cands.includes(cur).not };
+		stem = cur;
+		if (due) {
+			lands = false;
+			if (sel == \auto) {
+				if (chapter) {
+					lands = true;
+				} {
+					if (cycleBar == 0) {
+						// Exception 2: can progression Auto ever change?
+						alone = ~ppAutoCandidates.value.reject { |c| c == cyc[\stem] }.isEmpty;
+						if (alone) {
+							if (a[\soloNoted] != true) {
+								a[\soloNoted] = true;
+								~ppLog.("PedalPulse: only one progression can play on Auto, so Auto palettes change at the end of its round");
+							};
+							lands = phraseLine;
+						};
+					};
+				};
+			} {
+				lands = chapter or: { phraseLine };
+			};
+			if (lands) {
+				recent = a[\history].asArray.keep(-2);
+				pool = cands.reject { |c| (c == cur) or: { recent.includes(c) } };
+				if (pool.isEmpty) { pool = cands.reject { |c| c == cur } };
+				stem = pickFrom.(pool);
+			};
+		};
+	};
+	stem
+};
+
+// b, cyc, cycleBar, progChanged -> the palette stem the song bar b plays. On \auto
+// the Auto rotation above; otherwise the selected palette when it is a loaded
+// Symbol; anything else (nil, not loaded) is classic. A named pick also ends the
+// Auto state, so a later Auto engages fresh. A stem that is not registered becomes
+// classic. It reads ~ppSel and ~ppLib defensively.
+~ppHarmPaletteFor = { |b, cyc, cycleBar, progChanged|
+	var sel, stem, registered;
+	sel = if (~ppSel.notNil) { ~ppSel[\palettes] } { nil };
+	registered = { |st|
+		st.notNil and: { ~ppLib.notNil and: { ~ppLib[\palettes].notNil and: { ~ppLib[\palettes][st].notNil } } }
+	};
+	if (sel == \auto) {
+		stem = try {
+			~ppPalAutoNext.(b, cyc, cycleBar, progChanged)
+		} { |err|
+			var keep = if (registered.(~ppPalPlaying)) { ~ppPalPlaying } { \classic };
+			~ppLog.("PedalPulse ERROR: Auto palette pick failed: % -- keeping %".format(err.errorString, keep));
+			keep
+		};
+		if (registered.(stem).not) { stem = \classic };
+	} {
+		if (~ppHarm.notNil and: { ~ppHarm[\palAuto].notNil }) { ~ppHarm[\palAuto][\current] = nil };
+		stem = if (sel.isKindOf(Symbol) and: { registered.(sel) }) { sel } { \classic };
+	};
+	stem
 };
 
 // --- The memo ---
 // ~ppHarm is the running schedule: (sig:, entries:, last:, cycle:, pending:,
-// voicing:, cycleLog:, lastStem:, auto:, lastPalette:, palLog:). Only this module and
+// voicing:, cycleLog:, lastStem:, auto:, lastPalette:, palLog:, palAuto:). Only this module and
 // ~ppHarmReset write it.
 // A restart (main.scd's ~ppStart and teardown) calls ~ppHarmReset so a Start
 // always begins a new run at the selected progression's first chord.
@@ -362,7 +534,8 @@
 			sig: [clock, base], entries: Dictionary.new, last: nil, cycle: nil,
 			pending: nil, voicing: nil, cycleLog: List.new, lastStem: nil,
 			auto: (current: nil, holdLeft: 0, history: List.new),
-			lastPalette: nil, palLog: List.new
+			lastPalette: nil, palLog: List.new,
+			palAuto: (current: nil, holdLeft: 0, history: List.new, soloNoted: false)
 		);
 		~ppHarm = h;
 	};
@@ -428,7 +601,7 @@
 					h[\palLog].add((bar: b, stem: palStem));
 					while { h[\palLog].size > ~ppHarmLogCap } { h[\palLog].removeAt(0) };
 				};
-				// The palette sounding now (Plan 04's Auto and the meter read it).
+				// The palette sounding now (palette Auto and the meter read it).
 				~ppPalPlaying = palStem;
 				h[\entries][b] = entry;
 				h[\voicing] = entry[\voicing];
