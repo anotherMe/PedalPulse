@@ -5,19 +5,19 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Registry Events treat the stems `parent` and `proto` as prototypes, not entries"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Every Start replays the identical Auto order"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`~ppAutoPrefetching` is reset on every load of loader.scd"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The library guard only compares the working tree with HEAD"
   - id: IN-01
     severity: info
@@ -35,19 +35,19 @@ findings:
     severity: info
     disposition: open
     title: "Test and gate timing"
-open: 8
+open: 4
 total: 8
-recorded: 2026-10-12T20:06:53.291Z
+recorded: 2026-10-13T06:35:06.552Z
 ---
 
 # Phase 06: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
+| WR-01 | warning | fixed | 06-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 06-REVIEW-FIX.md |
+| WR-03 | warning | fixed | 06-REVIEW-FIX.md |
+| WR-04 | warning | fixed | 06-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
