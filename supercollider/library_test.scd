@@ -2730,6 +2730,168 @@ fork({
 					restoreAll.(name);
 					checkOk.(name);
 				}.value;
+
+				// 14d. auto palette replays from the seed (D-08): the same auto seed on a
+				// fresh counter replays the same palette order, and palette draws never
+				// change the progression order (own counter, own seed salt). Pure: no clock.
+				{
+					var name = "auto palette replays from the seed";
+					var saved, savedPicks, savedPalPicks, savedPlaying, runOf, a, b, c, shape;
+					saved = saveT.value;
+					savedPicks = ~ppAutoPicks;
+					savedPalPicks = ~ppPalAutoPicks;
+					savedPlaying = ~ppPalPlaying;
+					~ppAutoHoldBars = [4, 8];
+					~ppPalHoldBars = [8, 16];
+					~ppAutoSeed = 7;
+					runOf = { |base, palSel|
+						waitFor.({ (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } }, 3);
+						~ppAutoPicks = 0;
+						~ppPalAutoPicks = 0;
+						~ppPalPlaying = \classic;
+						~ppHarmReset.value;
+						~ppSel[\progressions] = \auto;
+						~ppSel[\palettes] = palSel;
+						300.do { |i| ~ppHarmonyFor.(base + i, i) };
+						(
+							pal: ~ppHarmPaletteLog.().collect { |e| [e[\bar], e[\stem]] },
+							cyc: ~ppHarmCycleLog.().collect { |x| [x[\start], x[\stem]] }
+						)
+					};
+					a = runOf.(50000, \auto);
+					b = runOf.(60000, \auto);
+					c = runOf.(70000, \classic);
+					if (a[\pal].size < 5) {
+						fail.(name, "fewer than 4 palette changes in 300 bars: %".format(a[\pal]));
+					};
+					if (a[\pal] != b[\pal]) {
+						fail.(name, "the same seed gave two palette orders: % vs %".format(a[\pal], b[\pal]));
+					};
+					if (a[\cyc] != b[\cyc]) {
+						fail.(name, "the same seed gave two progression orders: % vs %".format(a[\cyc], b[\cyc]));
+					};
+					if (a[\cyc] != c[\cyc]) {
+						fail.(name, "palette draws changed the progression order: % vs %".format(a[\cyc], c[\cyc]));
+					};
+					~ppHarmReset.value;
+					~ppSel[\progressions] = \classic;
+					~ppSel[\palettes] = \classic;
+					~ppAutoPicks = savedPicks;
+					~ppPalAutoPicks = savedPalPicks;
+					~ppPalPlaying = savedPlaying;
+					restoreT.(saved);
+					checkOk.(name);
+				}.value;
+
+				// 14e. auto palette starts fresh after Stop and Start (D-08): a new run
+				// (what ~ppStart does is a ~ppHarmReset) draws a palette again at its
+				// first bar, never the one that was playing; the draw counter keeps
+				// growing across runs.
+				{
+					var name = "auto palette starts fresh after stop and start";
+					var saved, savedPlaying, prev, first, picks, lastPicks;
+					saved = saveT.value;
+					savedPlaying = ~ppPalPlaying;
+					~ppPalHoldBars = [4, 4];
+					~ppSel[\progressions] = \classic;
+					~ppSel[\palettes] = \auto;
+					~ppPalPlaying = \classic;
+					lastPicks = ~ppPalAutoPicks;
+					5.do { |run|
+						waitFor.({ (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } }, 3);
+						prev = ~ppPalPlaying;
+						~ppHarmReset.value;
+						16.do { |i| ~ppHarmonyFor.(80000 + (run * 1000) + i, i) };
+						first = ~ppHarmPaletteLog.()[0];
+						if (first.isNil or: { first[\bar] != 0 }) {
+							fail.(name, "run % has no palette record at bar 0: %".format(run, ~ppHarmPaletteLog.()));
+						};
+						if (first[\stem] == prev) {
+							fail.(name, "run % opens on %, the palette that was playing before it".format(run, prev));
+						};
+						picks = ~ppPalAutoPicks;
+						if (picks <= lastPicks) {
+							fail.(name, "the palette draw counter did not grow in run % (% -> %)".format(run, lastPicks, picks));
+						};
+						lastPicks = picks;
+					};
+					~ppHarmReset.value;
+					~ppSel[\palettes] = \classic;
+					~ppPalPlaying = savedPlaying;
+					restoreT.(saved);
+					checkOk.(name);
+				}.value;
+
+				// 14f. auto palette stays bounded (ENG-03, T-07-11): 1200 Auto bars in a
+				// pure run keep the memo, the palette log, Auto's history, the registry
+				// and the server's SynthDef count at their caps; no error line.
+				{
+					var name = "auto palette stays bounded";
+					var saved, before, lastBar = nil, changes = 0, lineCount = 0, errorCount = 0, last, chunk, h;
+					var defsBefore, defsAfter, addedPerChunk = List.new, chunkChanges = 0;
+					saved = saveT.value;
+					~ppHarmReset.value;
+					~ppSel[\progressions] = \auto;
+					~ppSel[\palettes] = \auto;
+					~ppAutoHoldBars = [4, 4];
+					~ppPalHoldBars = [4, 4];
+					~ppAutoSeed = 5;
+					waitFor.({ (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } }, 3);
+					1.wait;
+					defsBefore = s.numSynthDefs;
+					before = ~ppLogCount;
+					1200.do { |i|
+						~ppHarmonyFor.(30000 + i, i);
+						last = ~ppHarmPaletteLog.().last;
+						if (last.notNil and: { last[\bar] != lastBar }) {
+							changes = changes + 1;
+							chunkChanges = chunkChanges + 1;
+							lastBar = last[\bar];
+						};
+						// ~ppLogLines keeps only 100: count in chunks of 100 bars.
+						if (((i + 1) % 100) == 0) {
+							chunk = newLogs.(before);
+							lineCount = lineCount + chunk.count { |l| l.beginsWith("PedalPulse: palette ") };
+							errorCount = errorCount + chunk.count { |l| l.find("ERROR").notNil };
+							addedPerChunk.add(chunkChanges);
+							chunkChanges = 0;
+							before = ~ppLogCount;
+						};
+					};
+					waitFor.({ (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } }, 3);
+					1.wait;
+					defsAfter = s.numSynthDefs;
+					h = ~ppHarm;
+					if (h[\palAuto][\history].size > 8) {
+						fail.(name, "Auto remembers % palette picks, expected at most 8".format(h[\palAuto][\history].size));
+					};
+					if (~ppHarmPaletteLog.().size > 256) {
+						fail.(name, "the palette log holds % records, expected at most 256".format(~ppHarmPaletteLog.().size));
+					};
+					if (h[\entries].size > 64) {
+						fail.(name, "the memo holds % entries, expected at most 64".format(h[\entries].size));
+					};
+					if (~ppLib[\palettes].size != palStems.size) {
+						fail.(name, "the registry holds % palettes, expected the % on disk: %".format(~ppLib[\palettes].size, palStems.size, ~ppLib[\palettes].keys));
+					};
+					if (defsAfter != defsBefore) {
+						fail.(name, "the server holds % SynthDefs after the run, % before it".format(defsAfter, defsBefore));
+					};
+					if (changes < 100) {
+						fail.(name, "only % palette changes in 1200 bars, Auto is not rotating (per 100 bars: %)".format(changes, addedPerChunk));
+					};
+					if (lineCount != changes) {
+						fail.(name, "% palette lines for % palette changes".format(lineCount, changes));
+					};
+					if (errorCount > 0) {
+						fail.(name, "% ERROR lines during the Auto run".format(errorCount));
+					};
+					~ppHarmReset.value;
+					~ppSel[\progressions] = \classic;
+					~ppSel[\palettes] = \classic;
+					restoreT.(saved);
+					checkOk.(name);
+				}.value;
 			}.value;
 
 			// The tier leaves every category on classic.
@@ -3489,6 +3651,124 @@ fork({
 					fail.(name, "the unchanged broken file was reported again % times".format(n));
 				};
 				~ppAutoHoldBars = [32, 64];
+				checkOk.(name);
+			}.value;
+
+			// 14. auto adds a new palette file (D-08, LIB-05): a palette file written
+			// while palette Auto runs joins the rotation by itself, no restart. With
+			// only classic in the folder Auto keeps classic and never errors. The
+			// palette fixtures that are valid or registered are deleted first, so only
+			// classic and the never-registered broken fixtures are left on disk.
+			// 15. auto skips a broken palette (T-07-10): the broken fixtures were
+			// scanned by the Auto scans above and each was reported once.
+			{
+				var name = "auto adds a new palette file";
+				var savedPalHold, before, rc, rows, plog, fresh, fp, voiceText, nm, broken, brokenCounts, sinceCheck;
+				var firstFresh, perBarChecks, rowsAfter, drums, palRoles;
+				savedPalHold = ~ppPalHoldBars;
+				File.delete(tmpRoot +/+ "palettes/probe_pal.scd");
+				File.delete(tmpRoot +/+ "palettes/fixpal.scd");
+				broken = ["bad_defs", "ghost_voice", "clobber", "half_defs"];
+				// A hold longer than the recording: once fresh_pal is drawn it stays.
+				~ppPalHoldBars = [64, 64];
+				before = ~ppLogCount;
+				sendSel.('/pp/progression', 'classic');
+				sendSel.('/pp/palette', 'auto');
+				if (waitFor.({
+					(~ppSel[\progressions] == \classic) and: { (~ppSel[\palettes] == \auto)
+						and: { (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } } }
+				}, 8).not) {
+					fail.(name, "the selections never became classic and auto with the palette scan finished: %".format(~ppSel));
+				};
+				voiceText = { |nm|
+					"SynthDef('pp_fresh_pal_%', { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.005, 0.05, 0.5, 0.1), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;".format(nm)
+				};
+				rc = recordBars.(32, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 18) } { 0.02.wait };  // bar 4.5
+					wr.("palettes/fresh_pal.scd", "(\ndesc: \"fresh palette\",\ndefs: {\n%\n},\nroles: (bass: (instrument: 'pp_fresh_pal_bass'), arp: (instrument: 'pp_fresh_pal_arp'), pad: (instrument: 'pp_fresh_pal_pad'), lead: (instrument: 'pp_fresh_pal_lead'))\n)\n".format(["bass", "arp", "pad", "lead"].collect { |n| voiceText.(n) }.join("\n")));
+				});
+				rows = rc[\rows];
+				plog = ~ppHarmPaletteLog.();
+				fp = plog.detect { |e| e[\stem] == \fresh_pal };
+				if (fp.isNil) {
+					fail.(name, "fresh_pal.scd never joined the rotation: %".format(plog));
+				};
+				if (((fp[\bar] % 8) != 0) or: { fp[\bar] > 24 } or: { fp[\bar] < 8 }) {
+					fail.(name, "fresh_pal starts at bar %, expected a multiple of 8 between 8 and 24: %".format(fp[\bar], plog));
+				};
+				// Every bar before it plays classic (the only palette that can play).
+				if (plog.any { |e| (e[\bar] < fp[\bar]) and: { e[\stem] != \classic } }) {
+					fail.(name, "a palette other than classic played before fresh_pal: %".format(plog));
+				};
+				// From fresh_pal's first bar every pitched row uses its voices, the drums classic's.
+				drums = [\ppKick, \ppHat, \ppClap];
+				rows.do { |r|
+					var b = barOf.(r[1]), want;
+					if (b >= fp[\bar]) {
+						if (drums.includes(r[0])) {
+							want = ~ppInstrumentFor.(~ppLayerRole[r[0]], \classic);
+						} {
+							want = ("pp_fresh_pal_" ++ ~ppLayerRole[r[0]]).asSymbol;
+						};
+					} {
+						want = ~ppInstrumentFor.(~ppLayerRole[r[0]], \classic);
+					};
+					if (r[2] != want) {
+						fail.(name, "% bar % plays % instead of % (fresh_pal starts at bar %)".format(r[0], b, r[2], want, fp[\bar]));
+					};
+				};
+				// The music never stopped.
+				expectClassicBars.(name, rows, 32);
+				fresh = newLogs.(before);
+				if (fresh.any { |l| l.find("ERROR").notNil and: { l.find("fresh_pal.scd").notNil } }) {
+					fail.(name, "an ERROR line names fresh_pal.scd: %".format(fresh));
+				};
+				// For the next check: how often each broken fixture was reported since `before`.
+				brokenCounts = broken.collect { |b|
+					var path = tmpRoot +/+ "palettes/" ++ b ++ ".scd";
+					fresh.count { |l| l.find("ERROR").notNil and: { l.find(path).notNil } }
+				};
+				checkOk.(name);
+
+				name = "auto skips a broken palette";
+				broken.do { |b, i|
+					var path = tmpRoot +/+ "palettes/" ++ b ++ ".scd";
+					if (brokenCounts[i] != 1) {
+						fail.(name, "% was reported % times by the Auto scans, expected exactly 1: %".format(path, brokenCounts[i], fresh));
+					};
+					if (~ppHarmPaletteLog.().any { |e| e[\stem] == b.asSymbol }) {
+						fail.(name, "the broken palette % was played: %".format(b, ~ppHarmPaletteLog.()));
+					};
+					if (~ppAutoFailed.keys.asArray.any { |k| k.endsWith("palettes/" ++ b ++ ".scd") }.not) {
+						fail.(name, "~ppAutoFailed has no entry for %: %".format(path, ~ppAutoFailed.keys));
+					};
+				};
+				// A changed broken file is reported again, once; an unchanged one is not.
+				1.1.wait;  // the file's modification time has a one second resolution
+				wr.("palettes/clobber.scd", "(\ndesc: \"clobbers classic's arp again\",\ndefs: {\nSynthDef('pp_clobber_arp', { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.005, 0.05, 0.5, 0.1), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;\nSynthDef('ppArp', { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.005, 0.05, 0.5, 0.1), gate, doneAction: 2); Out.ar(out, (Saw.ar(freq) * env * amp) ! 2) }).add;\n},\nroles: (arp: (instrument: 'pp_clobber_arp'))\n)\n");
+				before = ~ppLogCount;
+				~ppAutoPrefetch.(\palettes);
+				if (waitFor.({ (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } }, 5).not) {
+					fail.(name, "the palette scan never finished");
+				};
+				1.wait;
+				nm = newLogs.(before).count { |l| l.find("ERROR").notNil and: { l.find("palettes/clobber.scd").notNil } };
+				if (nm != 1) {
+					fail.(name, "the changed broken file was reported % times, expected exactly 1: %".format(nm, newLogs.(before)));
+				};
+				before = ~ppLogCount;
+				~ppAutoPrefetch.(\palettes);
+				waitFor.({ (~ppAutoBusy.(\palettes) != true) and: { ~ppAutoPrefetching != true } }, 5);
+				1.wait;
+				nm = newLogs.(before).count { |l| l.find("ERROR").notNil };
+				if (nm != 0) {
+					fail.(name, "the unchanged broken files were reported again % times: %".format(nm, newLogs.(before)));
+				};
+				~ppPalHoldBars = savedPalHold;
+				sendSel.('/pp/palette', 'classic');
+				if (waitFor.({ ~ppSel[\palettes] == \classic }, 3).not) {
+					fail.(name, "~ppSel[\\palettes] never returned to classic");
+				};
 				checkOk.(name);
 			}.value;
 
