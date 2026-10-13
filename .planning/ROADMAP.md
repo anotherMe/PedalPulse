@@ -145,14 +145,14 @@ Plans:
   4. Switching palettes causes no noticeable volume jump, and VO2 at volume 100 on the loudest palette still never clips
   5. The standing exit gate holds for every palette (Stop silences its voices, nothing bypasses the limiter). CPU with the heaviest palette at VO2 is measured on the riding Mac and stays within the agreed budget for running next to Zwift
 
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 
 Plans:
 **Wave 1**
 - [x] 07-01-PLAN.md — Tracer: a palette picked by name switches all seven layers on the same next bar and is named in the post window; the palette meter (level, VO2 headroom, CPU, extreme notes) joins the library-only gate; supersaw ships tuned against it
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 07-02-PLAN.md — Library hardening (D-16): WR-01 row bounds; WR-02 pp_<name>_ voice namespace with a defs guard that removes and restores voices on refusal
+- [x] 07-02-PLAN.md — Library hardening (D-16): WR-01 row bounds; WR-02 pp_<name>_ voice namespace with a defs guard that removes and restores voices on refusal
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 07-03-PLAN.md — Bass styles (eighths, sixteenths, octave) chosen by the palette, then acid and dark, each measured before it is frozen
@@ -209,6 +209,6 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
 | 5. Library Selectors in the GUI | v2.0 | 3/3 | Complete    | 2026-10-12 |
 | 6. Shared Harmony & Progressions | v2.0 | 5/5 | Complete    | 2026-10-13 |
-| 7. Sound Palettes | v2.0 | 1/6 | In Progress | - |
+| 7. Sound Palettes | v2.0 | 2/6 | In Progress | - |
 | 8. Evolving Melodies | v2.0 | 0/TBD | Not started | - |
 | 9. Song Structure, EPIC Density & Ride Soak | v2.0 | 0/TBD | Not started | - |
