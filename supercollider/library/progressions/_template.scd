@@ -32,7 +32,9 @@
 //     chord, nextChord, changesNext, chordBar, chordBars, cycleBar, cycleLen,
 //     voicing, scale and progression, next to bar, songBar, phraseBar and role.
 //     Every note a generator plays must be in its bar's chord (the check enforces
-//     it).
+//     it). A bass generator plays only under the classic palette: every other
+//     palette plays its own bass style on the chords (see the README, "Bass
+//     styles").
 //   - desc stays required; nothing runs at load.
 //
 // This template plays Am F C G, one chord per bar.

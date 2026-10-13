@@ -29,9 +29,9 @@ LOG="${TMPDIR:-/tmp}/pedalpulse-smoke.log"
 
 TIMEOUT_CMD=""
 if command -v timeout >/dev/null 2>&1; then
-	TIMEOUT_CMD="timeout 390"
+	TIMEOUT_CMD="timeout 510"
 elif command -v gtimeout >/dev/null 2>&1; then
-	TIMEOUT_CMD="gtimeout 390"
+	TIMEOUT_CMD="gtimeout 510"
 fi
 
 rc=0

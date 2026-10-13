@@ -26,9 +26,29 @@ progressions:
 - `drama`: Am Dm F E, with a bright major E at the end that leads back to Am.
 
 It also holds `melodies/classic`, `melodies/classic_lead` (the classic arp plus
-a faint lead one octave up), `melodies/classic_lead_loud` (the same lead, but as
-loud as the arp so it is easy to hear) and `palettes/classic`. Every file also
-has a `desc` line at the top that says what it sounds like.
+a faint lead one octave up) and `melodies/classic_lead_loud` (the same lead, but
+as loud as the arp so it is easy to hear).
+
+The `palettes/` folder holds seven sound worlds. Each one changes the voices of
+the whole band (drums, bass, arp, pad and lead):
+
+- `classic`: the original sounds.
+- `supersaw`: a huge, wide wall of detuned saw waves in the pad and the lead, a
+  bright saw arp and a saw bass with a sub underneath.
+- `acid`: a squelchy 303-style bass that rolls in fast sixteenths, a bright
+  resonant arp and a sharp lead.
+- `dark`: a deep, long kick, a gritty low bass rolling in sixteenths and a narrow,
+  murky arp and pad.
+- `pluck`: bright, digital plucked sounds, a bass that pops up and down an octave
+  and a tiny, crisp hi-hat.
+- `warm`: soft, round and old-analog: triangle and sine waves with a gentle
+  wobble, nothing sharp.
+- `air`: glassy bells for the arp and the lead, a shimmering pad of pure sine
+  waves and a deep, clean sine bass.
+
+`dark` has its own deep kick and `pluck` its own crisp hat; the other drums in
+every palette are classic's. Every file also has a `desc` line at the top that
+says what it sounds like.
 
 ## The one rule
 
@@ -42,9 +62,9 @@ A name is 1 to 64 characters from lowercase `a-z`, `0-9` and `_`. It does not
 start with `_`, and `auto` is reserved (it means "let the engine choose"), as are
 `parent` and `proto` (they are special slots of the SuperCollider Event that holds
 the library). For
-progressions, `auto` lets the engine rotate through the progressions by itself
-(see "Progressions and Auto" below). For melodies and palettes it still plays
-classic until their own phases arrive.
+progressions and palettes, `auto` lets the engine rotate by itself (see
+"Progressions and Auto" and "Palettes and Auto" below). For melodies it still
+plays classic until their own phase arrives.
 
 The `_template.scd` file in each folder is an example for writing a new file.
 Copy it to a new name and change the copy. A `_template.scd` can never be
@@ -71,7 +91,9 @@ switches at the end of the progression that is playing (at most 8 bars with the
 files that ship, about 15 seconds at 128 BPM) and then stays on the new one.
 At every progression change the post window prints
 `PedalPulse: progression <name>: <chords>`; use that name when you describe what
-you heard.
+you heard. A palette switches at the next bar line and then stays; at every
+palette change the post window prints `PedalPulse: palette <name>: <description>`,
+so use that name too.
 
 Picking the name that is already selected does nothing, unless the last send of
 it failed: then picking it again sends it again. To hear a file again
@@ -99,8 +121,8 @@ The other two categories work the same way, with their own address:
 
 - Progression: `send_message('/pp/progression', 'classic')`
 - Palette: `send_message('/pp/palette', 'classic')`
-- Any of the three with `'auto'` lets the engine choose: progressions rotate by
-  themselves, melodies and palettes still play classic.
+- Any of the three with `'auto'` lets the engine choose: progressions and
+  palettes rotate by themselves, melodies still play classic.
 
 Sending the same name again re-reads the file from disk, so you can save a
 change to a new file and hear it at the next bar line without restarting.
@@ -148,7 +170,95 @@ progression is only chord data:
   a new pick waits for the end of the cycle that is playing.
 - The engine always plays in A, so a file only says which chord, never which key.
 - Bass, pad, arp and lead follow the chords by themselves. If you want something
-  special, `bass` and `pad` generators in the file replace the core's part.
+  special, `bass` and `pad` generators in the file replace the core's part. A
+  `bass` generator is heard only while the `classic` palette plays; every other
+  palette plays its own bass style on your chords (see "Bass styles").
+
+## Palettes and Auto
+
+A palette is a whole set of sounds. When Palette is on Auto the engine changes it
+by itself, and it changes it on the same bar where a new progression starts, so
+the sound and the chords always change together.
+
+- **The first palette.** Auto draws a random palette as soon as the palette files
+  are loaded. It is never `classic` first and never the palette that was playing.
+  It lands at the start of the next round of chords. After a Start that is the very
+  first bar, which is also a progression change. If you pick Auto while the music
+  plays (the app does this when it opens), it is the next round start, so the new
+  palette comes within a few bars instead of after minutes.
+- **How long a palette stays.** Each palette is held for 80 to 128 bars. A bar is
+  4 beats, so minutes = bars x 4 / BPM: that is 2.9 to 5.7 minutes at 90 to 110
+  BPM (shorter at a higher BPM). After the hold the palette changes at the next
+  progression change. Waiting for that adds about 25 bars on average and at most
+  64. With Progression on Auto a palette therefore plays about 4.7 to 5.7 minutes
+  on average at 90 to 110 BPM, and any single palette anywhere from about 3 to 8.5
+  minutes.
+- **With a progression picked by name.** The palette changes at the end of that
+  progression's round once the hold is over: about 3 to 6 minutes per palette at
+  90 to 110 BPM. `classic`'s round is one bar, so with it a palette changes on an
+  8-bar line.
+- **Only one progression can play.** If Progression is on Auto but only one
+  progression can play (for example only `classic` is in the folder), palettes
+  change at the end of its round and the post window says
+  `PedalPulse: only one progression can play on Auto, so Auto palettes change at the end of its round`
+  once.
+- **No quick repeats.** Auto never picks the palette that is playing or one of the
+  last two it played. A palette file you add while the engine runs joins the
+  rotation by itself.
+- **A name locks it.** Picking a palette by name keeps it, whatever the
+  progressions do, until you pick Auto again. Auto then draws a different palette
+  (it does not keep the one you picked) at the next round.
+- **Stop then Start** draws a new random palette.
+- **Replay.** The `PedalPulse: progression auto seed <n>` line in the post window
+  also replays the order of the palettes on a freshly started SuperCollider.
+- Notes that are ringing when the palette changes finish by themselves (there is
+  no cut), there is no transition effect, and a palette never turns the lead on:
+  the Melody choice does.
+
+Every change prints `PedalPulse: palette <name>: <description>` in the post
+window. That line is what to read when you want to name the sound you just heard.
+
+## Bass styles
+
+A palette can name its bass rhythm with `bassStyle` in its file:
+
+- `\eighths`: offbeat eighths, the classic bass groove.
+- `\sixteenths`: a rolling bass in sixteenths.
+- `\octave`: offbeat pops that jump between two octaves.
+
+`acid` and `dark` roll sixteenths, `pluck` pops octaves, and `classic`,
+`supersaw`, `warm` and `air` play eighths.
+
+The palette decides the bass rhythm under every progression, the `classic`
+progression included (its chord is A minor in every bar). Pick `acid` during the
+classic groove and the bass rolls in sixteenths on A. Only the `classic` palette
+keeps the progression's own bass, so `classic` in both Palette and Progression is
+still exactly the original sound. The palettes that play eighths (`supersaw`,
+`warm`, `air`) use classic's bass notes and rhythm under the classic progression.
+
+## Write a new palette
+
+Copy `palettes/_template.scd` to a new name and change the copy.
+
+- Name every voice `pp_<name>_<role>`, for example `pp_dusk_arp` inside
+  `dusk.scd`. A palette that uses another palette's voice name is refused.
+- The voice contract (see "File contract" below): controls `out`, `amp`, `freq`
+  and `gate` (drums: `out` and `amp`), an envelope that ends the synth, and
+  `Out.ar(out, ...)` only.
+- Keep releases short (about 1.5 seconds at most). If a filter cutoff follows the
+  note, clamp it with `.min(12000)`. Put no reverb or delay inside a voice: the
+  engine's EPIC effects do that.
+- Then level-match it. Run
+
+  ```
+  bash scripts/palette_level.sh <name>
+  ```
+
+  It plays your palette and `classic` on its own silent test server (never your
+  running engine) and prints how much louder or quieter yours is. Change only the
+  gain numbers in your file and run it again until the gap to `classic` is 0.75 dB
+  or less and every `CHECK OK` line appears. Commit the file only then: a
+  committed palette can never be edited, so a gain you got wrong would stay.
 
 ## Check everything
 
@@ -156,8 +266,10 @@ progression is only chord data:
 bash scripts/check.sh
 ```
 
-This runs the library check and then the full smoke test. For the faster part
-that only covers the library, while you are adding a variation:
+This runs the library check, which also measures every palette against `classic`
+(`CHECK OK: palette levels`), and then the full smoke test. It takes several
+minutes. For the faster part that only covers the library, while you are adding a
+variation:
 
 ```
 bash scripts/check.sh --library-only
@@ -169,6 +281,21 @@ checks that every committed file is unchanged, and that every palette sound
 stays on its own bus (so it always goes through the master limiter), lets go
 when the gate closes, and frees itself.
 
+### CPU next to Zwift
+
+To see whether the engine fits next to Zwift on your Mac: quit the PedalPulse
+engine, open Zwift (no ride needed), and run
+
+```
+bash scripts/palette_cpu.sh
+```
+
+It finds the heaviest palette, plays it at the hardest settings (VO2, volume 100)
+for about a minute and prints a line like
+`PedalPulse meter: cpu <name> mean=... max=... peak=...` and then `CPU PASS` or
+`CPU FAIL`. Report the `mean` and `peak` numbers. It passes when the mean is under
+25 percent.
+
 ## File contract (for authors)
 
 - One Event per file (everything inside one pair of parentheses). Nothing runs
@@ -178,8 +305,8 @@ when the gate closes, and frees itself.
 - Read and write Events with `[\key]`, never dot syntax.
 - Progressions provide `chords` (chord data; the core plays the bass and the pad
   from it) or, like classic, `bass` and `pad` generators. Melodies provide
-  `arp`, `lead` and an optional `init`. Palettes provide `defs` (optional) and
-  `roles`.
+  `arp`, `lead` and an optional `init`. Palettes provide `defs` (optional),
+  `roles` and optionally `bassStyle`.
 - The engine moves a melody's notes onto the current chord: the classic arp's A,
   C, E become the root, third and fifth of each chord. A melody that works out
   its own notes from `plan[\chord]` sets `ownHarmony: true` in its Event, and
@@ -197,5 +324,8 @@ when the gate closes, and frees itself.
 - The voice contract for a palette sound: controls `out`, `amp`, `freq` and
   `gate` (drums: `out` and `amp`), an envelope that ends the synth
   (`doneAction: 2`), `Out.ar(out, ...)` only (never bus 0), and a name that
-  starts with `pp_<palette>_`.
+  starts with `pp_<palette>_` (enforced: a file that breaks it is refused; a role
+  may still use one of classic's six voices).
+- A progression's `bass` generator is heard only while the `classic` palette
+  plays; every other palette plays its `bassStyle` on the progression's chords.
 - Later phases only add optional keys, so a committed file never needs an edit.

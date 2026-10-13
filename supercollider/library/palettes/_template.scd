@@ -24,14 +24,40 @@
 //   - Out.ar(out, ...) only: never bus 0, so every voice goes through the master
 //     limiter;
 //   - the name starts with pp_<palette>_ (for example pp_warm_arp), so voices of
-//     different palettes never overwrite each other.
+//     different palettes never overwrite each other. This rule is enforced: a
+//     palette file whose voice does not start with its own pp_<palette>_ is
+//     refused (a role may still point at one of classic's six voices, for example
+//     the drums).
+//
+// bassStyle (optional) is the rhythm of the bass under EVERY progression, the
+// classic progression included. Three values:
+//   \eighths     offbeat eighths, the classic bass groove (the default when the key
+//                is left out);
+//   \sixteenths  a rolling bass in sixteenths;
+//   \octave      offbeat pops that jump between two octaves.
+// Only the classic palette keeps a progression's own bass generator; every other
+// palette plays its bassStyle on the chords of the bar.
+//
+// Keep voices short and tame: releases about 1.5 s at most, filter cutoffs that
+// follow the note clamped with .min(12000), and no reverb or delay inside a voice
+// (the engine's EPIC effects do that).
+//
+// The level loop. A new palette has to sit at the same loudness as classic. Before
+// the file's first commit run
+//
+//   bash scripts/palette_level.sh <name>
+//
+// and change ONLY the gain numbers (the constant that multiplies each voice's
+// output) until the gap to classic is 0.75 dB or less and every CHECK OK line
+// appears. Then commit the file once: a committed palette file can never be edited,
+// so a gain you got wrong would stay.
 //
 // An example voice, as it would sit inside defs (kept as a comment here so this
 // template adds nothing):
 //
 //   SynthDef(\pp_warm_arp, { |out = 0, amp = 0.1, freq = 440, gate = 1|
 //       var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.5, 0.2), gate, doneAction: 2);
-//       var sig = LPF.ar(Saw.ar([freq, freq * 1.002]), freq * 3);
+//       var sig = LPF.ar(Saw.ar([freq, freq * 1.002]), (freq * 3).min(12000));
 //       Out.ar(out, sig * env * amp);
 //   }).add;
 //
@@ -41,6 +67,9 @@ desc: "Template: the shipped voices under their classic names, to copy and chang
 
 defs: {
 },
+
+// \eighths, \sixteenths or \octave: the bass rhythm under every progression.
+bassStyle: \eighths,
 
 roles: (
 	kick: (instrument: \ppKick),
