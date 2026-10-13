@@ -1326,15 +1326,20 @@ fork({
 		// are caught here, before the file is frozen by its commit. Plans 03 and 05
 		// add rows. Row: [stem, bassStyle or nil, the palette's own drum roles].
 		{
-			var req, table, descs, mod, classicMod;
+			var req, table, descs, mod, classicMod, ownVoices;
 
 			req = { |ok, what| if (ok.not) { fail.("shipped palettes", what) } };
 			descs = List.new;
 			table = [
 				[\supersaw, nil, []],
 				[\acid, \sixteenths, []],
-				[\dark, \sixteenths, [\kick]]
+				[\dark, \sixteenths, [\kick]],
+				[\pluck, \octave, [\hat]],
+				[\warm, nil, []],
+				[\air, nil, []]
 			];
+			req.(table.size >= 6, "PAL-01 needs at least 5 named palettes plus classic, the table lists only %".format(table.size));
+			ownVoices = List.new;
 			classicMod = ~ppLibLoad.(\palettes, \classic);
 			req.(classicMod.notNil, "could not load palettes/classic");
 			descs.add(classicMod[\desc]);
@@ -1359,8 +1364,15 @@ fork({
 					};
 				};
 				req.(mod[\bassStyle] == row[1], "% bassStyle is % instead of %".format(stem, mod[\bassStyle], row[1]));
+				// Every voice the palette maps to a role of its own (the ones in its own
+				// namespace), for the disjointness check below.
+				(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
+					var entry = mod[\roles][role];
+					if (entry.notNil and: { entry[\instrument].asString.beginsWith(prefix) }) { ownVoices.add(entry[\instrument]) };
+				};
 				descs.add(mod[\desc]);
 			};
+			req.(ownVoices.asArray.as(Set).size == ownVoices.size, "two palettes share an own voice: %".format(ownVoices));
 			req.(descs.size == (table.size + 1), "expected % descriptions, found %".format(table.size + 1, descs.size));
 			req.(descs.asArray.as(Set).size == descs.size, "the % descriptions are not all different: %".format(descs.size, descs));
 			checkOk.("shipped palettes");
@@ -2177,7 +2189,10 @@ fork({
 				table = [
 					[\supersaw, \eighths, 4],
 					[\acid, \sixteenths, 12],
-					[\dark, \sixteenths, 12]
+					[\dark, \sixteenths, 12],
+					[\pluck, \octave, 4],
+					[\warm, \eighths, 4],
+					[\air, \eighths, 4]
 				];
 				near = { |a, b| (a - b).abs < 1e-6 };
 				// genRows -> [onset, note, dur, legato, amp] for every sounding row.
@@ -2230,8 +2245,9 @@ fork({
 							if (prog == \classic) {
 								if (e[\chord][\name] != "Am") { fail.(label, "bar % chord is % instead of Am".format(b, e[\chord][\name])) };
 								if (got.last[1] != 36) { fail.(label, "bar % ends on % instead of C2 (36)".format(b, got.last[1])) };
-								if (got.every { |g, i| (i == (got.size - 1)) or: { g[1] == 33 } }.not) {
-									fail.(label, "bar % has a bass note that is not A1 (33): %".format(b, got));
+								// The octave style pops the second note up an octave (A2, 45).
+								if (got.every { |g, i| (i == (got.size - 1)) or: { g[1] == 33 } or: { (style == \octave) and: { (i == 1) and: { g[1] == 45 } } } }.not) {
+									fail.(label, "bar % has a bass note that is not A1 (33), or A2 (45) as the octave pop: %".format(b, got));
 								};
 								if (style == \eighths) {
 									classicRows = expectOf.(~ppLib[\progressions][\classic][\bass].value(plan, ()));
@@ -2242,6 +2258,16 @@ fork({
 							};
 						};
 						harmonyCheck.(label, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
+						if (stem == \pluck) {
+							rws.select { |r| r[0] == \ppHat }.do { |r|
+								if (r[2] != \pp_pluck_hat) {
+									fail.(label, "a hat row in bar % uses % instead of pp_pluck_hat".format(barOf.(r[1]), r[2]));
+								};
+							};
+							if (rws.select { |r| r[0] == \ppHat }.size == 0) {
+								fail.(label, "no hat rows were recorded");
+							};
+						};
 						if (stem == \dark) {
 							rws.select { |r| r[0] == \ppKick }.do { |r|
 								if (r[2] != \pp_dark_kick) {

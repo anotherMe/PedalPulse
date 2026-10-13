@@ -1,17 +1,27 @@
 // Headless palette meter (Phase 7, PAL-04, D-13, D-14, D-15).
 //
-// Measures every sound palette against classic on the real engine, before a
-// palette file is frozen by its first commit: loudness, headroom at VO2, CPU,
-// node count and the extreme notes of the pitched voices.
+// Two modes, both on the real engine:
 //
-// Run via scripts/palette_level.sh (which sets the environment), or directly:
+//   level (the default)  measures every sound palette against classic, before a
+//     palette file is frozen by its first commit: loudness, headroom at VO2, CPU,
+//     node count and the extreme notes of the pitched voices.
+//   cpu  the rider's one-minute CPU check, to run next to Zwift: it finds the
+//     heaviest palette with a short pass over every palette at VO2, locks it at
+//     EPIC 100 and volume 100 for 60 s and prints scsynth's own CPU load on this
+//     machine. It passes when the mean is under 25 percent.
+//
+// Run via scripts/palette_level.sh or scripts/palette_cpu.sh (which set the
+// environment), or directly:
 //   PP_METER=level PP_METER_STEMS="supersaw" \
 //     /Applications/SuperCollider.app/Contents/MacOS/sclang -D supercollider/palette_meter.scd
+//   PP_METER=cpu \
+//     /Applications/SuperCollider.app/Contents/MacOS/sclang -D supercollider/palette_meter.scd
 //
-//   PP_METER        "level" (or unset) is the only mode; anything else fails.
-//   PP_METER_STEMS  space separated palette names; empty means every palette
-//                   file on disk. classic is always measured first, as the
-//                   reference, and only once.
+//   PP_METER        "level" (or unset) or "cpu"; anything else fails.
+//   PP_METER_STEMS  space separated palette names. level: empty means every palette
+//                   file on disk; classic is always measured first, as the
+//                   reference, and only once. cpu: empty means find the heaviest
+//                   palette itself; exactly one name measures that palette only.
 //
 // Do NOT set QT_QPA_PLATFORM=offscreen anywhere: verified to abort sclang
 // 3.14.1 on macOS with exit 134. Plain `sclang -D` runs headless on its own.
@@ -24,6 +34,13 @@
 //   PALETTE PASS                          last line on success, exit 0
 //   PALETTE FAIL: <name>: <detail>        first failure, exit 1
 //   PALETTE FAIL: watchdog timeout        a hang, exit 1
+//
+// cpu mode lines:
+//   PedalPulse meter: cpu quick <stem> mean=<x>      the short pass, one per palette
+//   PedalPulse meter: heaviest palette <stem>
+//   PedalPulse meter: cpu <stem> mean=<x> max=<y> peak=<z> samples=<n>
+//   CPU PASS                              mean under 25, exit 0
+//   CPU FAIL: <stem> mean <x>% is 25% or more   exit 1
 //
 // Isolation (never disturbs a running engine): this file boots its own muted
 // server on port 57142 (the live engine uses 57110 / 57120, the smoke test
@@ -53,9 +70,11 @@ var fail, checkOk, checkWarn, topFail;
 var sendSel, waitFor, readCtl;
 var replies, nextId = 0, runWindow, selectPalette;
 var elapsed;
+var cpuRun, cpuLine = nil, cpuPass = false;
 
 // Watchdog first, in case anything below hangs. 480 s leaves room for several
-// palettes; scripts/palette_level.sh kills the run at 510 s.
+// palettes (and for the cpu mode's quick pass plus its minute); the scripts kill
+// the run at 510 s.
 SystemClock.sched(480, { "PALETTE FAIL: watchdog timeout".postln; 1.exit; nil });
 
 // sclang reports a relative nowExecutingPath when given a relative path, so
@@ -65,12 +84,16 @@ root = File.realpath(thisProcess.nowExecutingPath).dirname.dirname;
 // A mode check needs no server: refuse before booting anything.
 mode = "PP_METER".getenv;
 if (mode.isNil or: { mode == "" }) { mode = "level" };
-if (mode != "level") {
+if ((mode != "level") and: { mode != "cpu" }) {
 	"PALETTE FAIL: mode: unknown mode %".format(mode).postln;
 	1.exit;
 };
 wantStems = "PP_METER_STEMS".getenv;
 wantStems = if (wantStems.isNil) { [] } { wantStems.split($ ).reject { |x| x.size < 1 } };
+if ((mode == "cpu") and: { wantStems.size > 1 }) {
+	"PALETTE FAIL: stems: cpu mode takes one palette name".postln;
+	1.exit;
+};
 
 // Redirect to an isolated server before loading main.scd, so a live engine on
 // 57110 / 57120 is never touched.
@@ -188,6 +211,62 @@ runWindow = { |bars, specs, sampleServer|
 	out
 };
 
+// cpuRun.(stems) -> nothing; sets cpuPass and cpuLine. Call from a Routine, with the
+// engine set up at 180 BPM, progression anthem, melody classic_lead_loud (the same
+// setup as the level mode). stems is the list of palettes on disk (classic included),
+// or the one palette the rider named.
+cpuRun = { |stems|
+	var quick = List.new, heaviest, win, mean, maxAvg = 0, peak = 0, samples = List.new, n;
+
+	// VO2: EPIC 100 and volume 100, with the smoothed EPIC settled.
+	sendSel.('/pp/epic', 100);
+	sendSel.('/pp/volume', 100);
+	if (waitFor.({ (readCtl.(~ppEpicSmoothBus) - 1.0).abs < 0.005 }, 8).not) {
+		fail.("setup", "the smoothed EPIC bus never settled at 1.0");
+	};
+	0.5.wait;
+
+	if (stems.size == 1) {
+		heaviest = stems[0];
+	} {
+		// The quick pass: each palette plays 2 bars to settle, then 2 bars are sampled.
+		stems.do { |stem|
+			selectPalette.(stem);
+			(~clock.beatDur * 8).wait;
+			win = runWindow.(2, [], true);
+			mean = win[\cpu];
+			"PedalPulse meter: cpu quick % mean=%".format(stem, mean.round(0.01)).postln;
+			quick.add([stem, mean]);
+		};
+		heaviest = quick[0];
+		quick.do { |q| if (q[1] > heaviest[1]) { heaviest = q } };   // strictly greater: ties go to the first by name
+		heaviest = heaviest[0];
+		"PedalPulse meter: heaviest palette %".format(heaviest).postln;
+	};
+
+	// The lock: the heaviest palette for 60 s. s.avgCPU and s.peakCPU refresh every
+	// 0.7 s (the server status period), so sample at that rate.
+	selectPalette.(heaviest);
+	(~clock.beatDur * 8).wait;
+	n = (60 / 0.7).round.asInteger;
+	n.do {
+		samples.add(s.avgCPU);
+		peak = max(peak, s.peakCPU);
+		maxAvg = max(maxAvg, s.avgCPU);
+		0.7.wait;
+	};
+	mean = samples.sum / samples.size;
+	"PedalPulse meter: cpu % mean=% max=% peak=% samples=%".format(
+		heaviest, mean.round(0.01), maxAvg.round(0.01), peak.round(0.01), samples.size).postln;
+	if (mean < 25) {
+		cpuPass = true;
+		cpuLine = "CPU PASS";
+	} {
+		cpuPass = false;
+		cpuLine = "CPU FAIL: " ++ heaviest ++ " mean " ++ mean.round(0.01) ++ "% is 25% or more";   // + not format: format reads every % as a hole
+	};
+};
+
 fork({
 	var stems, onDisk, level = (), classicDb, vo2 = (), extremes;
 
@@ -262,6 +341,10 @@ fork({
 			fail.("setup", "the smoothed EPIC bus never settled at 0.5");
 		};
 
+		// cpu mode: the VO2 minute (cpuRun above); the level mode's three passes follow.
+		if (mode == "cpu") {
+			cpuRun.(if (wantStems.size == 1) { [wantStems[0].asSymbol] } { onDisk.collect { |n| n.asSymbol } });
+		} {
 		// --- Level pass: post-FX RMS, 4 bars after 2 settling bars ---
 		stems.do { |stem|
 			var res, db, gap, name;
@@ -373,6 +456,8 @@ fork({
 			};
 		};
 
+		};
+
 		// Put the selections back, then finish.
 		sendSel.('/pp/palette', 'classic');
 		sendSel.('/pp/epic', 50);
@@ -382,8 +467,13 @@ fork({
 		// server quits (otherwise the server logs "Group not found" noise).
 		~ppStop.value;
 		0.6.wait;
-		"PALETTE PASS".postln;
-		s.quit(onComplete: { 0.exit });
+		if (mode == "cpu") {
+			cpuLine.postln;
+			s.quit(onComplete: { (if (cpuPass) { 0 } { 1 }).exit });
+		} {
+			"PALETTE PASS".postln;
+			s.quit(onComplete: { 0.exit });
+		};
 	}.try({ |err|
 		topFail.(err);
 		s.quit(onComplete: { 1.exit });
