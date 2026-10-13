@@ -1326,7 +1326,7 @@ fork({
 		// are caught here, before the file is frozen by its commit. Plans 03 and 05
 		// add rows. Row: [stem, bassStyle or nil, the palette's own drum roles].
 		{
-			var req, table, descs, mod, classicMod;
+			var req, table, descs, mod, classicMod, ownVoices;
 
 			req = { |ok, what| if (ok.not) { fail.("shipped palettes", what) } };
 			descs = List.new;
@@ -1335,8 +1335,11 @@ fork({
 				[\acid, \sixteenths, []],
 				[\dark, \sixteenths, [\kick]],
 				[\pluck, \octave, [\hat]],
-				[\warm, nil, []]
+				[\warm, nil, []],
+				[\air, nil, []]
 			];
+			req.(table.size >= 6, "PAL-01 needs at least 5 named palettes plus classic, the table lists only %".format(table.size));
+			ownVoices = List.new;
 			classicMod = ~ppLibLoad.(\palettes, \classic);
 			req.(classicMod.notNil, "could not load palettes/classic");
 			descs.add(classicMod[\desc]);
@@ -1361,8 +1364,15 @@ fork({
 					};
 				};
 				req.(mod[\bassStyle] == row[1], "% bassStyle is % instead of %".format(stem, mod[\bassStyle], row[1]));
+				// Every voice the palette maps to a role of its own (the ones in its own
+				// namespace), for the disjointness check below.
+				(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
+					var entry = mod[\roles][role];
+					if (entry.notNil and: { entry[\instrument].asString.beginsWith(prefix) }) { ownVoices.add(entry[\instrument]) };
+				};
 				descs.add(mod[\desc]);
 			};
+			req.(ownVoices.asArray.as(Set).size == ownVoices.size, "two palettes share an own voice: %".format(ownVoices));
 			req.(descs.size == (table.size + 1), "expected % descriptions, found %".format(table.size + 1, descs.size));
 			req.(descs.asArray.as(Set).size == descs.size, "the % descriptions are not all different: %".format(descs.size, descs));
 			checkOk.("shipped palettes");
@@ -2181,7 +2191,8 @@ fork({
 					[\acid, \sixteenths, 12],
 					[\dark, \sixteenths, 12],
 					[\pluck, \octave, 4],
-					[\warm, \eighths, 4]
+					[\warm, \eighths, 4],
+					[\air, \eighths, 4]
 				];
 				near = { |a, b| (a - b).abs < 1e-6 };
 				// genRows -> [onset, note, dur, legato, amp] for every sounding row.
