@@ -48,9 +48,11 @@ var tmpRoot, realLibRoot, cleanupTmp, wr, shq, expectClassicBars, leadDiffs, fre
 var staticCheck, stripSource, forbiddenTokens, staticTmp, listStems;
 var harmonyCheck, enumVoicings, voicingCost, strictChordCheck;
 
-// Watchdog first, in case anything below hangs. 300 s: the Phase 6 harmony tiers
-// record every chord-data progression on disk (two cycles plus a restart each).
-SystemClock.sched(300, {
+// Watchdog first, in case anything below hangs. 420 s: the Phase 6 harmony tiers
+// record every chord-data progression on disk (two cycles plus a restart each),
+// and since Phase 7 the palette Auto tier adds long recordings (the check took
+// 2:49 against the old 300 s limit after Wave 3).
+SystemClock.sched(420, {
 	"LIBRARY FAIL: watchdog timeout".postln;
 	cleanupTmp.value;
 	1.exit;
@@ -1817,13 +1819,14 @@ fork({
 				checkOk.(name);
 			}.value;
 
-			// 4. auto plays classic (RESEARCH open question 3).
+			// 4. auto plays classic (RESEARCH open question 3). Melody and progression
+			// only: since Phase 7 (D-08) palette Auto starts on a random palette, so it
+			// no longer plays classic; the palette Auto checks cover it.
 			{
 				var name = "auto plays classic";
 				sendSel.('/pp/melody', 'auto');
 				sendSel.('/pp/progression', 'auto');
-				sendSel.('/pp/palette', 'auto');
-				if (waitFor.({ ~ppLibCategories.every { |c| ~ppSel[c] == \auto } }, 2).not) {
+				if (waitFor.({ (~ppSel[\melodies] == \auto) and: { ~ppSel[\progressions] == \auto } }, 2).not) {
 					fail.(name, "selections did not become auto: %".format(~ppSel));
 				};
 				matchGold4.(name);
@@ -2460,6 +2463,274 @@ fork({
 				~ppAutoHoldBars = savedHold;
 				~ppAutoSeed = savedSeed;
 				checkOk.(name);
+			}.value;
+
+			// 14. Palette Auto tier (PAL-02, PAL-03, D-05 to D-08, D-11). Palette Auto
+			// starts on a random palette, changes it together with the chords, and a
+			// named pick locks it. The palettes are counted from disk (never a
+			// hardcoded number). Every check saves and restores the tunables it sets
+			// and puts all three selections back on classic.
+			{
+				var palStems, palAt, chapterAt, roundAt, prepare, checkVoices, saveT, restoreT;
+				var noteLine;
+				noteLine = "PedalPulse: only one progression can play on Auto, so Auto palettes change at the end of its round";
+				palStems = listStems.(~ppLibRoot +/+ "palettes").reject { |n| n[0] == $_ };
+
+				// The palette of song bar x: the last palette record with bar <= x.
+				palAt = { |plog, x|
+					var st = nil;
+					plog.do { |e| if (e[\bar] <= x) { st = e[\stem] } };
+					st
+				};
+				// True when a cycle with a different progression starts at bar (the run's
+				// first cycle counts).
+				chapterAt = { |cyc, bar|
+					var i = cyc.detectIndex { |c| c[\start] == bar };
+					i.notNil and: { (i == 0) or: { cyc[i][\stem] != cyc[i - 1][\stem] } }
+				};
+				// A round start: a chapter, or a cycle start that is a phrase line (a cycle
+				// of at least 4 bars, or a multiple of 8).
+				roundAt = { |cyc, bar|
+					var c = cyc.detect { |x| x[\start] == bar };
+					c.notNil and: { chapterAt.(cyc, bar) or: { (c[\len] >= 4) or: { (bar % 8) == 0 } } }
+				};
+				// Selections in place, every palette on disk registered, no palette scan
+				// queued or running.
+				prepare = { |name, prog, pal|
+					sendSel.('/pp/melody', 'classic_lead');
+					sendSel.('/pp/progression', prog);
+					sendSel.('/pp/palette', pal);
+					if (waitFor.({
+						(~ppSel[\melodies] == \classic_lead) and: { (~ppSel[\progressions] == prog) and: { (~ppSel[\palettes] == pal)
+							and: { (palStems.every { |n| ~ppLib[\palettes][n.asSymbol].notNil })
+								and: { (~ppAutoBusy.isNil or: { ~ppAutoBusy.(\palettes) != true }) and: { ~ppAutoPrefetching != true } } } } }
+					}, 8).not) {
+						fail.(name, "the selections never became classic_lead, % and % with every palette loaded and no scan running: % / %".format(prog, pal, ~ppSel, ~ppLib[\palettes].keys));
+					};
+				};
+				// Every row of every layer uses the voice its role gets from its bar's palette.
+				checkVoices = { |name, rws, plog, nBars|
+					rws.do { |r|
+						var b = barOf.(r[1]), st = palAt.(plog, b), want;
+						want = ~ppInstrumentFor.(~ppLayerRole[r[0]], st);
+						if (r[2] != want) {
+							fail.(name, "% bar % plays % instead of % (palette % there)".format(r[0], b, r[2], want, st));
+						};
+					};
+					if (rws.count { |r| r[0] == \ppKick } != (4 * nBars)) {
+						fail.(name, "% kick rows in % bars (the music stopped)".format(rws.count { |r| r[0] == \ppKick }, nBars));
+					};
+				};
+				saveT = { (hold: ~ppAutoHoldBars, seed: ~ppAutoSeed, pal: ~ppPalHoldBars) };
+				restoreT = { |t|
+					~ppAutoHoldBars = t[\hold];
+					~ppAutoSeed = t[\seed];
+					~ppPalHoldBars = t[\pal];
+				};
+
+				// 14a. auto palette rotates, and lands on a progression change.
+				{
+					var name = "auto palette rotates";
+					var saved, rc, rws, plog, cyc, before, fresh, lines, stems;
+					saved = saveT.value;
+					~ppAutoHoldBars = [4, 8];
+					~ppAutoSeed = 11;
+					~ppPalHoldBars = [4, 4];
+					before = ~ppLogCount;
+					prepare.(name, \auto, \auto);
+					rc = recordBars.(64, 32);
+					rws = rc[\rows];
+					plog = ~ppHarmPaletteLog.();
+					cyc = ~ppHarmCycleLog.();
+					if (plog.isEmpty or: { plog[0][\bar] != 0 }) {
+						fail.(name, "the first palette record is not at bar 0: %".format(plog));
+					};
+					if (plog[0][\stem] == \classic) {
+						fail.(name, "the first palette is classic, the palette that was playing before: %".format(plog));
+					};
+					stems = plog.collect { |e| e[\stem] };
+					if (stems.asSet.size < 3) {
+						fail.(name, "fewer than 3 different palettes in 64 bars: %".format(plog));
+					};
+					plog.do { |e, k|
+						if ((k >= 1) and: { e[\stem] == plog[k - 1][\stem] }) {
+							fail.(name, "palette record % repeats the previous palette %: %".format(k, e[\stem], plog));
+						};
+						if ((k >= 2) and: { e[\stem] == plog[k - 2][\stem] }) {
+							fail.(name, "palette record % goes back to % within two changes: %".format(k, e[\stem], plog));
+						};
+						if ((k >= 1) and: { chapterAt.(cyc, e[\bar]).not }) {
+							fail.(name, "palette record % starts at bar %, where no different progression starts: % / %".format(k, e[\bar], plog, cyc));
+						};
+					};
+					checkVoices.(name, rws, plog, 64);
+					fresh = newLogs.(before);
+					lines = fresh.select { |l| l.beginsWith("PedalPulse: palette ") };
+					if (lines.size != plog.size) {
+						fail.(name, "% palette lines for % palette records: %".format(lines.size, plog.size, lines));
+					};
+					plog.do { |e, k|
+						if (lines[k].beginsWith("PedalPulse: palette " ++ e[\stem] ++ ": ").not) {
+							fail.(name, "palette line % is '%', expected the palette %".format(k, lines[k], e[\stem]));
+						};
+					};
+					if (fresh.any { |l| l.find("rotates palettes").notNil }.not) {
+						fail.(name, "the palette auto selection line does not say 'rotates palettes': %".format(fresh));
+					};
+					restoreT.(saved);
+					restoreAll.(name);
+					checkOk.(name);
+					checkOk.("auto palette lands on a progression change");
+				}.value;
+
+				// 14b. auto palette with a locked progression (D-07) and with only one
+				// progression able to play (explicit exception 2 to D-06).
+				{
+					var name = "auto palette with a locked progression";
+					var saved, rc, rws, plog, before, base = 41000, orig, cyc, fresh, bars;
+					saved = saveT.value;
+					~ppAutoHoldBars = [4, 8];
+					~ppAutoSeed = 11;
+					~ppPalHoldBars = [4, 4];
+
+					// anthem picked by name: its cycle is 4 bars, a change lands on a multiple of 4.
+					prepare.(name, \anthem, \auto);
+					rc = recordBars.(32, 32);
+					plog = ~ppHarmPaletteLog.();
+					if (plog.isEmpty or: { plog[0][\bar] != 0 }) {
+						fail.(name, "anthem: the first palette record is not at bar 0: %".format(plog));
+					};
+					if (plog.size < 4) {
+						fail.(name, "anthem: fewer than 3 palette changes in 32 bars: %".format(plog));
+					};
+					plog.do { |e, k|
+						if ((k >= 1) and: { (e[\bar] % 4) != 0 }) {
+							fail.(name, "anthem: palette record % at bar % is not on an anthem cycle start: %".format(k, e[\bar], plog));
+						};
+					};
+					checkVoices.(name, rc[\rows], plog, 32);
+
+					// classic picked by name: a one-bar cycle, a change lands on a multiple of 8.
+					prepare.(name, \classic, \auto);
+					rc = recordBars.(32, 32);
+					plog = ~ppHarmPaletteLog.();
+					if (plog.isEmpty or: { plog[0][\bar] != 0 }) {
+						fail.(name, "classic: the first palette record is not at bar 0: %".format(plog));
+					};
+					if (plog.size < 3) {
+						fail.(name, "classic: fewer than 2 palette changes in 32 bars: %".format(plog));
+					};
+					plog.do { |e, k|
+						if ((k >= 1) and: { (e[\bar] % 8) != 0 }) {
+							fail.(name, "classic: palette record % at bar % is not on a multiple of 8: %".format(k, e[\bar], plog));
+						};
+					};
+					checkVoices.(name, rc[\rows], plog, 32);
+					restoreT.(saved);
+					restoreAll.(name);
+					checkOk.(name);
+
+					// Exception 2, pure: progression Auto but only classic can play.
+					name = "auto palette with a single progression";
+					saved = saveT.value;
+					orig = ~ppAutoCandidates;
+					{
+						~ppAutoCandidates = { [\classic] };
+						~ppAutoHoldBars = [4, 4];
+						~ppAutoSeed = 11;
+						~ppPalHoldBars = [4, 4];
+						waitFor.({ (~ppAutoBusy.isNil or: { ~ppAutoBusy.(\palettes) != true }) and: { ~ppAutoPrefetching != true } }, 3);
+						~ppHarmReset.value;
+						~ppSel[\progressions] = \auto;
+						~ppSel[\palettes] = \auto;
+						~ppPalPlaying = \classic;
+						before = ~ppLogCount;
+						64.do { |i| ~ppHarmonyFor.(base + i, i) };
+						plog = ~ppHarmPaletteLog.();
+						cyc = ~ppHarmCycleLog.();
+						fresh = newLogs.(before);
+						if (cyc.any { |c| c[\stem] != \classic }) {
+							fail.(name, "a cycle is not classic although only classic can play: %".format(cyc));
+						};
+						if (plog.isEmpty or: { plog[0][\bar] != 0 }) {
+							fail.(name, "the first palette record is not at bar 0: %".format(plog));
+						};
+						if (plog.size < 3) {
+							fail.(name, "fewer than 2 palette changes in 64 bars: %".format(plog));
+						};
+						plog.do { |e, k|
+							if ((k >= 1) and: { (e[\bar] % 8) != 0 }) {
+								fail.(name, "palette record % at bar % is not on a multiple of 8: %".format(k, e[\bar], plog));
+							};
+						};
+						if (fresh.count { |l| l == noteLine } != 1) {
+							fail.(name, "expected exactly one '%' line in %".format(noteLine, fresh));
+						};
+					}.protect({
+						~ppAutoCandidates = orig;
+						~ppHarmReset.value;
+						~ppSel[\progressions] = \classic;
+						~ppSel[\palettes] = \classic;
+						restoreT.(saved);
+					});
+					checkOk.(name);
+					checkOk.("auto palette with a locked progression");
+				}.value;
+
+				// 14c. named palette locks (PAL-03, D-11) and Auto after it draws a
+				// different palette at the next round start.
+				{
+					var name = "named palette locks";
+					var saved, rc, rws, plog, cyc, locked = nil, lockRec, next, changes;
+					saved = saveT.value;
+					~ppAutoHoldBars = [4, 8];
+					~ppAutoSeed = 11;
+					~ppPalHoldBars = [4, 4];
+					prepare.(name, \auto, \auto);
+					rc = recordBars.(56, 16, { |recClock, startBeat|
+						while { recClock.beats < (startBeat + 26) } { 0.02.wait };  // bar 6.5
+						// supersaw, unless Auto is playing it just now (then dark): the pick
+						// must be a change.
+						locked = if (~ppPalPlaying == \supersaw) { \dark } { \supersaw };
+						sendSel.('/pp/palette', locked);
+						if (waitFor.({ ~ppSel[\palettes] == locked }, 3).not) {
+							fail.(name, "~ppSel[\\palettes] never became %".format(locked));
+						};
+						while { recClock.beats < (startBeat + 130) } { 0.02.wait };  // bar 32.5
+						sendSel.('/pp/palette', 'auto');
+						if (waitFor.({ ~ppSel[\palettes] == \auto }, 3).not) {
+							fail.(name, "~ppSel[\\palettes] never became auto again");
+						};
+					});
+					rws = rc[\rows];
+					plog = ~ppHarmPaletteLog.();
+					cyc = ~ppHarmCycleLog.();
+					lockRec = plog.detect { |e| (e[\stem] == locked) and: { (e[\bar] >= 7) and: { e[\bar] <= 9 } } };
+					if (lockRec.isNil) {
+						fail.(name, "% never took over in bars 7 to 9 (picked in bar 6.5): %".format(locked, plog));
+					};
+					if (plog.any { |e| (e[\bar] > lockRec[\bar]) and: { e[\bar] <= 32 } }) {
+						fail.(name, "another palette record while % was locked: %".format(locked, plog));
+					};
+					changes = cyc.count { |c| (c[\start] > lockRec[\bar]) and: { (c[\start] <= 32) and: { chapterAt.(cyc, c[\start]) } } };
+					if (changes < 2) {
+						fail.(name, "the progression changed only % times while the palette was locked: %".format(changes, cyc));
+					};
+					next = plog.detect { |e| e[\bar] > 32 };
+					if (next.isNil or: { next[\bar] > 48 }) {
+						fail.(name, "Auto drew no new palette in bars 33 to 48: %".format(plog));
+					};
+					if (next[\stem] == locked) {
+						fail.(name, "Auto after the lock drew the locked palette % again: %".format(locked, plog));
+					};
+					if (roundAt.(cyc, next[\bar]).not) {
+						fail.(name, "the new palette starts at bar %, which is not a round start: % / %".format(next[\bar], plog, cyc));
+					};
+					checkVoices.(name, rws, plog, 56);
+					restoreT.(saved);
+					restoreAll.(name);
+					checkOk.(name);
+				}.value;
 			}.value;
 
 			// The tier leaves every category on classic.

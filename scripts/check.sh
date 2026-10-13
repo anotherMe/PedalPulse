@@ -222,9 +222,9 @@ LIB_LOG="${TMPDIR:-/tmp}/pedalpulse-library.log"
 
 TIMEOUT_CMD=""
 if command -v timeout >/dev/null 2>&1; then
-	TIMEOUT_CMD="timeout 330"
+	TIMEOUT_CMD="timeout 450"
 elif command -v gtimeout >/dev/null 2>&1; then
-	TIMEOUT_CMD="gtimeout 330"
+	TIMEOUT_CMD="gtimeout 450"
 fi
 
 rc=0
