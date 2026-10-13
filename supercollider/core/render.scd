@@ -162,7 +162,10 @@
 // pad read the cycle's captured progression module (a pick never switches them
 // mid-cycle), and
 // a module with chord data and no generator for the role is played by the core's
-// default bass or pad. Arp and lead rows are mapped onto the entry's chord (D-01,
+// default bass or pad. The bass rhythm is the bar's palette's (Phase 7, D-02): the
+// classic palette plays the progression's own bass path just described, every other
+// palette plays its bassStyle (~ppBassStyleFor) on the bar's chord under every
+// progression, the classic progression included. Arp and lead rows are mapped onto the entry's chord (D-01,
 // D-02) unless the entry is classic's (left untouched, byte for byte) or the
 // melody's own generator declares ownHarmony: true (it reads plan[\chord] itself;
 // rows that came from the classic fallback are always mapped).
@@ -224,6 +227,16 @@
 			if (gen.isFunction.not and: { (role == \bass) or: { role == \pad } } and: { mod.notNil } and: { mod[\chords].notNil }) {
 				// Chord data without its own part: the core plays it.
 				gen = if (role == \bass) { ~ppDefaultBass } { ~ppDefaultPad };
+			};
+			// The bar's palette decides the bass rhythm (D-02): a palette other than
+			// classic plays its bassStyle on the bar's chord under EVERY progression,
+			// the classic progression included (its implicit chord is A minor), and
+			// that replaces both the core default and a progression's own bass
+			// generator. The classic palette keeps the path above untouched: the
+			// progression's own generator, else the core default for chord data. The
+			// module key, init and failure accounting stay the progression's.
+			if ((role == \bass) and: { palStem != \classic }) {
+				gen = ~ppBassStyleFor.(palStem);
 			};
 			if (gen.isFunction) {
 				res = ~ppRunGenerator.(gen, plan, layerState[\state], role, songBar);

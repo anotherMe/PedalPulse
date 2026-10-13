@@ -642,6 +642,33 @@ staticCheck = { |libRoot, quiet|
 										};
 									};
 								};
+								// D-02: the bass under the classic progression (the one every Start
+								// plays first). The classic palette keeps the progression's own
+								// frozen bass; every other palette plays its bassStyle on the
+								// bar's chord (A minor here). Rows are compared without the
+								// instrument column.
+								if (~ppLib[\progressions][\classic].notNil) {
+									ls = ();
+									4.do { |b|
+										var rows = ~ppRenderBar.(\bass, b, b, ls);
+										var entry = ~ppHarmonyEntry.(b);
+										var plan = ~ppPlanFor.(b, b, \bass, entry);
+										var want, styleFn;
+										if (stem == \classic) {
+											want = ~ppLib[\progressions][\classic][\bass].value(plan, ());
+										} {
+											styleFn = if (~ppBassStyles.notNil) { ~ppBassStyles[mod[\bassStyle] ? \eighths] } { nil };
+											want = (styleFn ? ~ppDefaultBass).value(plan, ());
+										};
+										if (same.(rows.collect { |r| r.copyToEnd(1) }, want).not) {
+											if (stem == \classic) {
+												add.("% changes the classic bass (bar %)".format(label, b));
+											} {
+												add.("% bass under the classic progression does not follow its bassStyle (bar %)".format(label, b));
+											};
+										};
+									};
+								};
 							} {
 								roleGens[cat].do { |role|
 									ls = ();
@@ -765,6 +792,10 @@ fork({
 		wrs.("progressions/strict_bass.scd", "(\ndesc: \"bass outside the chord\",\nbass: { |plan, state| [[34, 4, 0.1, 0.8]] },\nchords: [(root: 0, quality: \\min)]\n)\n");
 		// WR-02: a palette whose role uses another palette's voice (the stem is foreign_role).
 		wrs.("palettes/foreign_role.scd", "(\ndesc: \"uses another palette's voice\",\ndefs: {\n\tSynthDef(\\pp_other_arp, { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.5, 0.2), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;\n},\nroles: (arp: (instrument: \\pp_other_arp))\n)\n");
+		// D-02: a palette's bassStyle must be one of the known style Symbols; a typo or
+		// a String refuses the file (T-07-07). Each fixture has an own voice for one role.
+		wrs.("palettes/bad_style.scd", "(\ndesc: \"unknown bass style\",\ndefs: {\n\tSynthDef(\\pp_bad_style_arp, { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.5, 0.2), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;\n},\nbassStyle: \\waltz,\nroles: (arp: (instrument: \\pp_bad_style_arp))\n)\n");
+		wrs.("palettes/string_style.scd", "(\ndesc: \"bass style given as a String\",\ndefs: {\n\tSynthDef(\\pp_string_style_arp, { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.5, 0.2), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;\n},\nbassStyle: \"sixteenths\",\nroles: (arp: (instrument: \\pp_string_style_arp))\n)\n");
 
 		bad = staticCheck.(staticTmp, true);
 		currentEnvironment.removeAt(\ppStaticProbeVar);
@@ -788,6 +819,12 @@ fork({
 		expectFailure.("a 24-bar cycle", "the cycle is 24 bars, more than 16");
 		expectFailure.("a bass note outside its chord", "progressions/strict_bass bass bar 0: note 34 is not in chord Am");
 		expectFailure.("a palette using another palette's voice", "does not start with pp_foreign_role_");
+		// Each bad style fixture must fail on its own file, with the list of valid styles.
+		["bad_style", "string_style"].do { |fx|
+			if (bad.any { |f| f.beginsWith("palettes/" ++ fx) and: { f.find("bassStyle is not one of: eighths, octave, sixteenths").notNil } }.not) {
+				fail.("static check catches bad files", "no failure for palettes/% (looked for \"bassStyle is not one of: eighths, octave, sixteenths\"), got: %".format(fx, bad));
+			};
+		};
 		if (bad.any { |f| f.beginsWith("melodies/classic") or: { f.beginsWith("palettes/classic") } }) {
 			fail.("static check catches bad files", "a good classic file failed in the temporary library: %".format(bad));
 		};
@@ -1096,6 +1133,112 @@ fork({
 			checkOk.("harmony units");
 		}.value;
 
+		// ---- Bass styles follow the chord (PAL-01, D-02): server-free ----
+		// Every bass style a palette can name keeps the Phase 6 chord rules: each
+		// sounding note is a tone of the bar's chord, the first sounding note is the
+		// chord's root, and the last sounding note is the pickup toward the next chord
+		// when the chord changes at the next bar and the chord's third otherwise. The
+		// eighths style is the core default bass itself, and on classic's implicit A
+		// minor it is exactly the classic progression's frozen bass.
+		{
+			var req, tbl, chordNamed, pickups, planFor, sounding, mod, cEntry, cPlan, want, got, savedLib;
+
+			req = { |ok, what| if (ok.not) { fail.("bass styles follow the chord", what) } };
+			req.(~ppBassStyles.notNil, "~ppBassStyles does not exist");
+			req.(~ppBassStyleNames.notNil, "~ppBassStyleNames does not exist");
+			req.(~ppBassStyleNames.asArray.sort == [\eighths, \octave, \sixteenths], "the style names are % instead of [eighths, octave, sixteenths]".format(~ppBassStyleNames));
+			req.(~ppBassStyles.keys.asArray.sort == ~ppBassStyleNames.asArray.sort, "~ppBassStyles has the styles % instead of the names %".format(~ppBassStyles.keys.asArray.sort, ~ppBassStyleNames));
+			req.(~ppBassStyles[\eighths] === ~ppDefaultBass, "the eighths style is not the core default bass");
+			req.(~ppBassStyleFor.(nil) === ~ppDefaultBass, "an unknown palette stem does not give the eighths style");
+
+			tbl = [["Am", 0, \min], ["F", 8, \maj], ["C", 3, \maj], ["G", 10, \maj], ["Dm", 5, \min], ["Em", 7, \min], ["E", 7, \maj]];
+			chordNamed = { |n|
+				var t = tbl.detect { |x| x[0] == n };
+				~ppChordExpand.((root: t[1], quality: t[2]))
+			};
+			// current, next, the pickup note on the last slot (the same table as harmony units)
+			pickups = [
+				["Am", "F", 40], ["F", "C", 36], ["C", "G", 43], ["G", "Am", 35], ["Am", "G", 45],
+				["G", "F", 43], ["F", "G", 45], ["Am", "C", 36], ["F", "Am", 33], ["Am", "Em", 40],
+				["Em", "F", 40], ["F", "Dm", 36], ["Dm", "Am", 33], ["Am", "Dm", 36], ["Dm", "F", 41],
+				["F", "E", 41], ["E", "Am", 32]
+			];
+			planFor = { |chord, next, changes|
+				(chord: chord, nextChord: next, changesNext: changes, chordBar: 0, chordBars: 1, voicing: ~ppPadHome)
+			};
+			sounding = { |rows| rows.select { |r| r[0] !== \rest } };
+
+			~ppBassStyleNames.do { |style|
+				var fn = ~ppBassStyles[style];
+				req.(fn.isFunction, "style % is not a Function".format(style));
+				// changesNext true: the table's pickups.
+				pickups.do { |pk|
+					var chord = chordNamed.(pk[0]), rows, snd, why, where;
+					where = "% % to %".format(style, pk[0], pk[1]);
+					rows = fn.value(planFor.(chord, chordNamed.(pk[1]), true), ());
+					why = ~ppRowsValid.(rows);
+					req.(why.isNil, "% rows are refused: %".format(where, why));
+					snd = sounding.(rows);
+					req.(snd.size > 0, "% sounds nothing".format(where));
+					snd.do { |r|
+						req.(chord[\pcs].includes(r[0].round.asInteger % 12), "% plays note % outside the chord".format(where, r[0]));
+					};
+					req.(snd.first[0] == ~ppBassRoot.(chord), "% starts on % instead of the root %".format(where, snd.first[0], ~ppBassRoot.(chord)));
+					req.(snd.last[0] == pk[2], "% ends on % instead of the pickup %".format(where, snd.last[0], pk[2]));
+				};
+				// changesNext false: the chord's third last.
+				tbl.do { |t|
+					var chord = chordNamed.(t[0]), rows, snd, why, where;
+					where = "% on % (no change)".format(style, t[0]);
+					rows = fn.value(planFor.(chord, chord, false), ());
+					why = ~ppRowsValid.(rows);
+					req.(why.isNil, "% rows are refused: %".format(where, why));
+					snd = sounding.(rows);
+					snd.do { |r|
+						req.(chord[\pcs].includes(r[0].round.asInteger % 12), "% plays note % outside the chord".format(where, r[0]));
+					};
+					req.(snd.first[0] == ~ppBassRoot.(chord), "% starts on % instead of the root".format(where, snd.first[0]));
+					req.(snd.last[0] == (~ppBassRoot.(chord) + chord[\intervals][1]), "% ends on % instead of the third %".format(where, snd.last[0], ~ppBassRoot.(chord) + chord[\intervals][1]));
+				};
+			};
+
+			// The shapes. Am to F: root 33, pickup 40; Am staying: root 33, third 36.
+			got = ~ppBassStyles[\sixteenths].value(planFor.(chordNamed.("Am"), chordNamed.("F"), true), ());
+			req.(got.size == 16, "sixteenths returns % rows instead of 16".format(got.size));
+			req.(got.every { |r| (r[1] == 0.25) and: { (r[2] - 0.1).abs < 1e-9 } and: { (r[3] - 0.6).abs < 1e-9 } }, "sixteenths rows are not dur 0.25, amp 0.1, legato 0.6: %".format(got));
+			req.([0, 4, 8, 12].every { |i| got[i][0] === \rest }, "sixteenths does not rest on each beat's first sixteenth");
+			req.(got.count { |r| r[0] !== \rest } == 12, "sixteenths sounds % notes instead of 12".format(got.count { |r| r[0] !== \rest }));
+			req.(got.collect { |r, i| if (r[0] === \rest) { i } { nil } }.reject { |x| x.isNil } == [0, 4, 8, 12], "sixteenths rests at the wrong rows");
+			got = ~ppBassStyles[\octave].value(planFor.(chordNamed.("Am"), chordNamed.("F"), true), ());
+			req.(got.size == 8, "octave returns % rows instead of 8".format(got.size));
+			req.(got.every { |r| (r[1] == 0.5) and: { (r[2] - 0.1).abs < 1e-9 } and: { (r[3] - 0.8).abs < 1e-9 } }, "octave rows are not dur 0.5, amp 0.1, legato 0.8: %".format(got));
+			req.([0, 2, 4, 6].every { |i| got[i][0] === \rest }, "octave does not rest on the downbeats");
+			req.([1, 3, 5, 7].collect { |i| got[i][0] } == [33, 45, 33, 40], "octave plays % instead of [33, 45, 33, 40]".format([1, 3, 5, 7].collect { |i| got[i][0] }));
+			got = ~ppBassStyles[\sixteenths].value(planFor.(chordNamed.("Am"), chordNamed.("Am"), false), ());
+			req.(sounding.(got).collect { |r| r[0] }.as(Set) == Set[33, 36], "sixteenths on a staying Am plays % instead of 33 and 36".format(sounding.(got).collect { |r| r[0] }.as(Set)));
+
+			// Eighths on classic's implicit chord is exactly the classic progression's frozen bass.
+			mod = ~ppLibLoad.(\progressions, \classic);
+			req.(mod.notNil, "could not load progressions/classic");
+			cEntry = ~ppHarmClassicEntry.();
+			cPlan = ~ppPlanFor.(0, 0, \bass, cEntry);
+			want = mod[\bass].value(cPlan, ());
+			got = ~ppBassStyles[\eighths].value(cPlan, ());
+			req.(same.(got, want), "eighths on classic's A minor is % instead of the classic progression's own bass %".format(got, want));
+			req.(same.(got, [[\rest, 0.5, 0.1, 0.8], [33, 0.5, 0.1, 0.8], [\rest, 0.5, 0.1, 0.8], [33, 0.5, 0.1, 0.8], [\rest, 0.5, 0.1, 0.8], [33, 0.5, 0.1, 0.8], [\rest, 0.5, 0.1, 0.8], [36, 0.5, 0.1, 0.8]]), "eighths on classic's A minor is not v1's rows: %".format(got));
+
+			// ~ppBassStyleFor: a registered palette's style, else eighths.
+			savedLib = ~ppLib;
+			~ppLib = (progressions: (), melodies: (), palettes: ());
+			~ppLib[\palettes].put(\unit_roll, (desc: "roll", bassStyle: \sixteenths, name: \unit_roll));
+			~ppLib[\palettes].put(\unit_none, (desc: "none", name: \unit_none));
+			req.(~ppBassStyleFor.(\unit_roll) === ~ppBassStyles[\sixteenths], "a palette with bassStyle sixteenths does not give that style");
+			req.(~ppBassStyleFor.(\unit_none) === ~ppDefaultBass, "a palette without bassStyle does not give the eighths style");
+			req.(~ppBassStyleFor.(\unit_missing) === ~ppDefaultBass, "an unregistered palette does not give the eighths style");
+			~ppLib = savedLib;
+			checkOk.("bass styles follow the chord");
+		}.value;
+
 		// ---- Shipped rows within bounds (WR-01, D-16): server-free ----
 		// Every row the core's own pad and bass generators can return, for each
 		// chord length from 1 to 8 bars (the pad legato reaches 7.2 on an 8-bar
@@ -1186,7 +1329,9 @@ fork({
 			req = { |ok, what| if (ok.not) { fail.("shipped palettes", what) } };
 			descs = List.new;
 			table = [
-				[\supersaw, nil, []]
+				[\supersaw, nil, []],
+				[\acid, \sixteenths, []],
+				[\dark, \sixteenths, [\kick]]
 			];
 			classicMod = ~ppLibLoad.(\palettes, \classic);
 			req.(classicMod.notNil, "could not load palettes/classic");
@@ -2012,6 +2157,113 @@ fork({
 					fail.(name, "selections did not return to classic: %".format(~ppSel));
 				};
 				checkOk.(name);
+			}.value;
+
+			// 10b. palette bass styles (PAL-01, D-02): the palette decides the bass
+			// rhythm under EVERY progression, the classic progression included (every
+			// Start plays it first). One table of rows [stem, style, sounding bass notes
+			// per bar]; Plan 05 adds rows. Pass 1 plays the rows under anthem, pass 2
+			// under the classic progression (the bar's chord is A minor every bar, so the
+			// notes are A1 roots and C2 last). In both: the palette's own bass voice, the
+			// expected number of sounding notes per bar, and every bar's notes, onsets,
+			// durs, legatos and amps equal what the style function writes for that bar's
+			// entry. Under classic an eighths row also equals the classic progression's
+			// own bass rows (v1's rhythm and notes).
+			{
+				var table, runPass, expectOf, near;
+				table = [
+					[\supersaw, \eighths, 4],
+					[\acid, \sixteenths, 12],
+					[\dark, \sixteenths, 12]
+				];
+				near = { |a, b| (a - b).abs < 1e-6 };
+				// genRows -> [onset, note, dur, legato, amp] for every sounding row.
+				expectOf = { |genRows|
+					var t = 0, out = List.new;
+					genRows.do { |g|
+						if (g[0] !== \rest) { out.add([t, g[0], g[1], g[3], g[2]]) };
+						t = t + g[1];
+					};
+					out.asArray
+				};
+				runPass = { |prog, name|
+					var nBars = 8;
+					sendSel.('/pp/progression', prog);
+					if (waitFor.({ ~ppSel[\progressions] == prog }, 3).not) {
+						fail.(name, "~ppSel[\\progressions] never became %".format(prog));
+					};
+					table.do { |row|
+						var stem = row[0], style = row[1], count = row[2], rc, rws, inst, label;
+						label = "% % (%)".format(name, stem, style);
+						sendSel.('/pp/palette', stem);
+						if (waitFor.({ ~ppSel[\palettes] == stem }, 5).not) {
+							fail.(label, "~ppSel[\\palettes] never became %: %".format(stem, ~ppSel));
+						};
+						rc = recordBars.(nBars, 16);
+						rws = rc[\rows];
+						inst = "pp_%_bass".format(stem).asSymbol;
+						rws.select { |r| r[0] == \ppBass }.do { |r|
+							if (r[2] != inst) {
+								fail.(label, "a bass row in bar % uses % instead of %".format(barOf.(r[1]), r[2], inst));
+							};
+						};
+						nBars.do { |b|
+							var e = ~ppHarmonyEntry.(b), plan, genRows, want, got, classicRows;
+							if (e.isNil) { fail.(label, "no harmony entry for bar %".format(b)) };
+							if (e[\palette] != stem) { fail.(label, "bar % plays palette % instead of %".format(b, e[\palette], stem)) };
+							if (e[\progression] != prog) { fail.(label, "bar % plays progression % instead of %".format(b, e[\progression], prog)) };
+							plan = ~ppPlanFor.(b, b, \bass, e);
+							genRows = ~ppBassStyles[style].value(plan, ());
+							want = expectOf.(genRows);
+							got = rws.select { |r| (r[0] == \ppBass) and: { barOf.(r[1]) == b } }.collect { |r| [r[1] - (4 * b), r[3], r[4], r[6], r[8]] };
+							if (got.size != count) {
+								fail.(label, "bar % holds % sounding bass notes, expected %".format(b, got.size, count));
+							};
+							if ((got.size != want.size) or: { got.every { |g, i| want[i].every { |x, k| near.(g[k], x) } }.not }) {
+								fail.(label, "bar % bass is % instead of the style's %".format(b, got, want));
+							};
+							// Under the classic progression the entry's chord is A minor every bar:
+							// A1 roots and C2 last, and an eighths row is v1's bass exactly.
+							if (prog == \classic) {
+								if (e[\chord][\name] != "Am") { fail.(label, "bar % chord is % instead of Am".format(b, e[\chord][\name])) };
+								if (got.last[1] != 36) { fail.(label, "bar % ends on % instead of C2 (36)".format(b, got.last[1])) };
+								if (got.every { |g, i| (i == (got.size - 1)) or: { g[1] == 33 } }.not) {
+									fail.(label, "bar % has a bass note that is not A1 (33): %".format(b, got));
+								};
+								if (style == \eighths) {
+									classicRows = expectOf.(~ppLib[\progressions][\classic][\bass].value(plan, ()));
+									if ((classicRows.size != got.size) or: { got.every { |g, i| classicRows[i].every { |x, k| near.(g[k], x) } }.not }) {
+										fail.(label, "bar % bass is % instead of the classic progression's own %".format(b, got, classicRows));
+									};
+								};
+							};
+						};
+						harmonyCheck.(label, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
+						if (stem == \dark) {
+							rws.select { |r| r[0] == \ppKick }.do { |r|
+								if (r[2] != \pp_dark_kick) {
+									fail.(label, "a kick row in bar % uses % instead of pp_dark_kick".format(barOf.(r[1]), r[2]));
+								};
+							};
+						};
+					};
+				};
+
+				sendSel.('/pp/melody', 'classic_lead');
+				if (waitFor.({ ~ppSel[\melodies] == \classic_lead }, 3).not) {
+					fail.("palette bass styles", "~ppSel[\\melodies] never became classic_lead");
+				};
+				runPass.(\anthem, "palette bass styles under anthem");
+				checkOk.("palette bass styles under anthem");
+				runPass.(\classic, "palette bass styles under classic");
+				checkOk.("palette bass styles under classic");
+
+				sendSel.('/pp/palette', 'classic');
+				sendSel.('/pp/progression', 'classic');
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ (~ppSel[\palettes] == \classic) and: { ~ppSel[\progressions] == \classic } and: { ~ppSel[\melodies] == \classic } }, 5).not) {
+					fail.("palette bass styles", "selections did not return to classic: %".format(~ppSel));
+				};
 			}.value;
 
 			// 11. auto rotates progressions (HARM-04, HARM-02, D-08 to D-11): with a

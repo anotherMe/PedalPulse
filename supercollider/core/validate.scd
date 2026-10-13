@@ -16,6 +16,10 @@
 // is ~ppValidate's third argument (the file's stem); the loader's defs guard
 // (~ppPaletteDefs in loader.scd) enforces the same rule on what defs really add.
 //
+// Palette bass style (Phase 7, D-02): a palette may also carry the optional key
+// bassStyle, one of ~ppBassStyleNames (eighths, octave, sixteenths). A missing key
+// means eighths; any other value refuses the file with the list of valid styles.
+//
 // Events are always accessed with [\key], never dot syntax.
 
 ~ppDrumRoles = [\kick, \hat, \clap];
@@ -30,6 +34,11 @@
 // above the chord root. core/harmony.scd reads this table, so it lives here,
 // next to the validator that checks a file's chord data against it.
 ~ppChordTypes = (maj: [0, 4, 7], min: [0, 3, 7]);
+
+// Bass styles a palette file may name with its optional bassStyle key (Phase 7, D-02).
+// core/harmony.scd holds one function per name (~ppBassStyles); the names live here,
+// next to the validator that checks a file's value against them, like ~ppChordTypes.
+~ppBassStyleNames = [\eighths, \octave, \sixteenths];
 
 // module -> Array of reason Strings for a progression's chord data (empty means
 // valid). Never throws on hostile values: every value's class is checked before
@@ -258,6 +267,11 @@
 				};
 			};
 			checkFn.(\defs);
+			// Optional bass style (D-02): a known style Symbol or nothing. `includes` on
+			// Symbols, so a String ("sixteenths") or a typo is refused (T-07-07).
+			if (module[\bassStyle].notNil and: { ~ppBassStyleNames.includes(module[\bassStyle]).not }) {
+				reasons.add("bassStyle is not one of: %".format(~ppBassStyleNames.join(", ")));
+			};
 		};
 		if ([\progressions, \melodies, \palettes].includes(cat).not) {
 			reasons.add("unknown category %".format(cat));
