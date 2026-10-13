@@ -33,7 +33,10 @@
 };
 
 // A selectable name: 1-64 characters, each a-z, 0-9 or _; not starting with _
-// (those are templates) and not "auto" (reserved). Takes a String or a Symbol.
+// (those are templates) and not "auto", "parent" or "proto" (reserved: Event:put
+// treats \parent and \proto as prototype slots, not as keys, so a registry entry
+// under either stem would leak its keys into every lookup). Takes a String or a
+// Symbol.
 // A character loop on ascii codes, never a regex: a regex $ anchor accepts a
 // trailing newline, so "classic\n" would pass (RESEARCH Pitfall 5). Names are
 // compared byte for byte, so Classic, clássico and "my lead" are all refused.
@@ -49,7 +52,7 @@
 		};
 	};
 	if (ok) {
-		ok = (str[0].ascii != 95) and: { str != "auto" };
+		ok = (str[0].ascii != 95) and: { ["auto", "parent", "proto"].includesEqual(str).not };
 	};
 	ok
 };

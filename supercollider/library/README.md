@@ -39,7 +39,9 @@ stays selectable and sounds exactly as it did. `bash scripts/check.sh` fails
 when a committed file was changed.
 
 A name is 1 to 64 characters from lowercase `a-z`, `0-9` and `_`. It does not
-start with `_`, and `auto` is reserved (it means "let the engine choose"). For
+start with `_`, and `auto` is reserved (it means "let the engine choose"), as are
+`parent` and `proto` (they are special slots of the SuperCollider Event that holds
+the library). For
 progressions, `auto` lets the engine rotate through the progressions by itself
 (see "Progressions and Auto" below). For melodies and palettes it still plays
 classic until their own phases arrive.
