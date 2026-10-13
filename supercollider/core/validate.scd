@@ -11,10 +11,20 @@
 // need an edit. (Phase 6 adds the optional progression keys chords and
 // barsPerChord; a file that has them is checked by ~ppChordDataReasons.)
 //
+// Voice namespace (Phase 7, WR-02): a palette other than classic may only use
+// voices named pp_<its name>_... or classic's six (~ppClassicVoices). The check
+// is ~ppValidate's third argument (the file's stem); the loader's defs guard
+// (~ppPaletteDefs in loader.scd) enforces the same rule on what defs really add.
+//
 // Events are always accessed with [\key], never dot syntax.
 
 ~ppDrumRoles = [\kick, \hat, \clap];
 ~ppPitchedRoles = [\bass, \pad, \arp, \lead];
+
+// Classic's own six voices (frozen v1 names). A palette may map a role to one of
+// these without the pp_<name>_ prefix, so palettes/_template.scd (all seven roles
+// on classic's voices) stays valid; classic itself may only define these six.
+~ppClassicVoices = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad];
 
 // Chord qualities a progression file may name (Phase 6). Intervals are semitones
 // above the chord root. core/harmony.scd reads this table, so it lives here,
@@ -179,9 +189,14 @@
 	reason
 };
 
-// cat, module -> Array of reason Strings (empty means valid).
-~ppValidate = { |cat, module|
-	var reasons = List.new, isFn, checkFn, anyOf;
+// cat, module, stem -> Array of reason Strings (empty means valid).
+// stem (optional, a Symbol) is the file's name. For a palette other than classic
+// it switches on the voice namespace rule (WR-02): every role's voice must start
+// with pp_<stem>_ or be one of classic's six (~ppClassicVoices), so two palettes
+// never share a voice name. A nil stem skips this rule, so other callers keep
+// working.
+~ppValidate = { |cat, module, stem|
+	var reasons = List.new, isFn, checkFn, anyOf, prefix;
 	isFn = { |x| x.isFunction };
 	// checkFn adds a reason when module[key] is present and not a Function.
 	checkFn = { |key|
@@ -227,6 +242,14 @@
 						known = known + 1;
 						if (entry.isKindOf(Event).not or: { entry[\instrument].isKindOf(Symbol).not }) {
 							reasons.add("role % has no instrument Symbol".format(role));
+						} {
+							// Namespace rule (WR-02): an own voice or one of classic's six.
+							if (stem.notNil and: { stem.asSymbol != \classic }) {
+								prefix = "pp_" ++ stem.asString ++ "_";
+								if (entry[\instrument].asString.beginsWith(prefix).not and: { ~ppClassicVoices.includes(entry[\instrument]).not }) {
+									reasons.add("role % voice % does not start with pp_%_ (a palette may only use its own voices or classic's)".format(role, entry[\instrument], stem.asString));
+								};
+							};
 						};
 					};
 				};

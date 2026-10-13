@@ -496,7 +496,7 @@ staticCheck = { |libRoot, quiet|
 	var failures = List.new, savedRoot, add, roleGens;
 	var snapKeys, snapPdef, snapTdef, snapOsc, newKeys, grown, logBefore;
 	var src, hit, mod, state, passA, passB, runPass, reasons, rendered, direct, fresh;
-	var stem, ok, nfail, path, dir, stems, sel, pre, names, ls;
+	var stem, ok, nfail, path, dir, stems, sel, pre, names, ls, defsRes;
 
 	savedRoot = ~ppLibRoot;
 	~ppLibRoot = libRoot;
@@ -513,7 +513,9 @@ staticCheck = { |libRoot, quiet|
 			pre[\rev] = 1;
 			~ppLib[cat].put(\classic, pre);
 			if ((cat == \palettes) and: { pre[\defs].isFunction }) {
-				try { pre[\defs].value } { |err| add.("palettes/classic defs threw: %".format(err.errorString)) };
+				// Palette defs only ever run through the engine's own guard (WR-02).
+				defsRes = ~ppPaletteDefs.(pre, \classic, nil);
+				defsRes[\reasons].do { |r| add.("palettes/classic %".format(r)) };
 			};
 		};
 	};
@@ -608,7 +610,9 @@ staticCheck = { |libRoot, quiet|
 					// (d) palette voices exist with the right controls.
 					if (cat == \palettes) {
 						if (mod[\defs].isFunction) {
-							try { mod[\defs].value } { |err| add.("% defs threw: %".format(label, err.errorString)) };
+							defsRes = ~ppPaletteDefs.(mod, stem, ~ppLib[cat][stem]);
+							defsRes[\reasons].do { |r| add.("% %".format(label, r)) };
+							if (defsRes[\reasons].size > 0) { defsRes[\undo].value };
 						};
 						reasons = ~ppValidateVoices.(mod);
 						reasons.do { |r| add.("% %".format(label, r)) };
@@ -1346,11 +1350,16 @@ fork({
 			// Every palette file (classic first, then sorted), templates included.
 			palStems = listStems.(~ppLibRoot +/+ "palettes");
 			palStems.do { |stemStr|
-				var mod, pairs = List.new, results, bad = List.new;
+				var mod, pairs = List.new, results, bad = List.new, defsRes;
 				mod = ~ppLibLoad.(\palettes, stemStr.asSymbol);
 				if (mod.isNil) { fail.("voices %".format(stemStr), "the palette did not load") };
 				if (mod[\defs].isFunction) {
-					try { mod[\defs].value } { |err| fail.("voices %".format(stemStr), "defs threw: %".format(err.errorString)) };
+					// The same guard the engine uses (WR-02): a palette's defs only
+					// define voices under its own name.
+					defsRes = ~ppPaletteDefs.(mod, stemStr.asSymbol, nil);
+					if (defsRes[\reasons].size > 0) {
+						fail.("voices %".format(stemStr), "defs refused: %".format(defsRes[\reasons].join("; ")));
+					};
 				};
 				s.sync;
 				(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
