@@ -1333,7 +1333,9 @@ fork({
 			table = [
 				[\supersaw, nil, []],
 				[\acid, \sixteenths, []],
-				[\dark, \sixteenths, [\kick]]
+				[\dark, \sixteenths, [\kick]],
+				[\pluck, \octave, [\hat]],
+				[\warm, nil, []]
 			];
 			classicMod = ~ppLibLoad.(\palettes, \classic);
 			req.(classicMod.notNil, "could not load palettes/classic");
@@ -2177,7 +2179,9 @@ fork({
 				table = [
 					[\supersaw, \eighths, 4],
 					[\acid, \sixteenths, 12],
-					[\dark, \sixteenths, 12]
+					[\dark, \sixteenths, 12],
+					[\pluck, \octave, 4],
+					[\warm, \eighths, 4]
 				];
 				near = { |a, b| (a - b).abs < 1e-6 };
 				// genRows -> [onset, note, dur, legato, amp] for every sounding row.
@@ -2230,8 +2234,9 @@ fork({
 							if (prog == \classic) {
 								if (e[\chord][\name] != "Am") { fail.(label, "bar % chord is % instead of Am".format(b, e[\chord][\name])) };
 								if (got.last[1] != 36) { fail.(label, "bar % ends on % instead of C2 (36)".format(b, got.last[1])) };
-								if (got.every { |g, i| (i == (got.size - 1)) or: { g[1] == 33 } }.not) {
-									fail.(label, "bar % has a bass note that is not A1 (33): %".format(b, got));
+								// The octave style pops the second note up an octave (A2, 45).
+								if (got.every { |g, i| (i == (got.size - 1)) or: { g[1] == 33 } or: { (style == \octave) and: { (i == 1) and: { g[1] == 45 } } } }.not) {
+									fail.(label, "bar % has a bass note that is not A1 (33), or A2 (45) as the octave pop: %".format(b, got));
 								};
 								if (style == \eighths) {
 									classicRows = expectOf.(~ppLib[\progressions][\classic][\bass].value(plan, ()));
@@ -2242,6 +2247,16 @@ fork({
 							};
 						};
 						harmonyCheck.(label, rws, [\ppBass, \ppArp, \ppPad, \ppLead]);
+						if (stem == \pluck) {
+							rws.select { |r| r[0] == \ppHat }.do { |r|
+								if (r[2] != \pp_pluck_hat) {
+									fail.(label, "a hat row in bar % uses % instead of pp_pluck_hat".format(barOf.(r[1]), r[2]));
+								};
+							};
+							if (rws.select { |r| r[0] == \ppHat }.size == 0) {
+								fail.(label, "no hat rows were recorded");
+							};
+						};
 						if (stem == \dark) {
 							rws.select { |r| r[0] == \ppKick }.do { |r|
 								if (r[2] != \pp_dark_kick) {
