@@ -1135,6 +1135,52 @@ fork({
 			checkOk.("shipped progressions");
 		}.value;
 
+		// ---- Shipped palettes (PAL-01, D-03, D-04): the real files on disk ----
+		// What every shipped palette must be, pinned by name: its own bass, arp,
+		// pad and lead voices (four different ones, the lead its own sound and not
+		// the arp's), exactly the drum voices it lists and none other (a drum role
+		// left out falls back to classic's), and its bass style. Wrong voice names
+		// are caught here, before the file is frozen by its commit. Plans 03 and 05
+		// add rows. Row: [stem, bassStyle or nil, the palette's own drum roles].
+		{
+			var req, table, descs, mod, classicMod;
+
+			req = { |ok, what| if (ok.not) { fail.("shipped palettes", what) } };
+			descs = List.new;
+			table = [
+				[\supersaw, nil, []]
+			];
+			classicMod = ~ppLibLoad.(\palettes, \classic);
+			req.(classicMod.notNil, "could not load palettes/classic");
+			descs.add(classicMod[\desc]);
+			table.do { |row|
+				var stem = row[0], prefix = "pp_%_".format(stem), insts;
+				mod = ~ppLibLoad.(\palettes, stem);
+				req.(mod.notNil, "could not load palettes/%".format(stem));
+				insts = ~ppPitchedRoles.collect { |role|
+					var entry = mod[\roles][role];
+					req.(entry.notNil, "% has no % voice".format(stem, role));
+					req.(entry[\instrument].asString.beginsWith(prefix), "% % voice % does not start with %".format(stem, role, entry[\instrument], prefix));
+					entry[\instrument]
+				};
+				req.(insts.as(Set).size == insts.size, "% bass, arp, pad and lead voices are not four different ones: %".format(stem, insts));
+				~ppDrumRoles.do { |role|
+					var entry = mod[\roles][role];
+					if (row[2].includes(role)) {
+						req.(entry.notNil, "% should have its own % voice".format(stem, role));
+						req.(entry[\instrument].asString.beginsWith(prefix), "% % voice % does not start with %".format(stem, role, entry[\instrument], prefix));
+					} {
+						req.(entry.isNil, "% names a % voice but the table says it plays classic's".format(stem, role));
+					};
+				};
+				req.(mod[\bassStyle] == row[1], "% bassStyle is % instead of %".format(stem, mod[\bassStyle], row[1]));
+				descs.add(mod[\desc]);
+			};
+			req.(descs.size == (table.size + 1), "expected % descriptions, found %".format(table.size + 1, descs.size));
+			req.(descs.asArray.as(Set).size == descs.size, "the % descriptions are not all different: %".format(descs.size, descs));
+			checkOk.("shipped palettes");
+		}.value;
+
 		// main.scd must start from the D-07 defaults, which parity depends on.
 		~ppSel = nil;
 		~ppLib = nil;
