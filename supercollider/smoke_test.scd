@@ -27,8 +27,9 @@ var sendSel, engineCounts, compareCounts, reloadMain, waitLeadFlowing, layersSta
 // Phase 3's EPIC checks wait out the 1.5s EPIC lag several times (glide
 // up/down/retarget, clamp float settle, fx headroom, re-evaluation). Raised
 // again from 300 to 360s: Phase 6 adds the progression Stop/Start and
-// re-evaluation checks.
-SystemClock.sched(360, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
+// re-evaluation checks. Raised to 480s in Phase 7: every palette on disk is
+// now stopped and started once, and Palette on Auto is re-evaluated.
+SystemClock.sched(480, { "SMOKE FAIL: watchdog timeout".postln; 1.exit; nil });
 
 // sclang reports a relative nowExecutingPath when given a relative path
 // (verified during planning), so resolve to an absolute path first.
@@ -2396,6 +2397,230 @@ fork({
 			fail.("progression re-evaluation", "classic was never re-selected for melodies (selection %)".format(~ppSel[\melodies]));
 		};
 		checkOk.("progression re-evaluation");
+	}.value;
+
+	// --- palette stop and start (Phase 7, ENG-05, T-07-15, T-07-16): for every
+	// palette file on disk, with anthem and classic_lead_loud playing, nothing
+	// bypasses the limiter (master pre-gain 0 leaves bus 0 silent), Stop empties
+	// the instrument group (pad tails and a palette's own drums included), no layer
+	// renders another bar, and Start plays again. The palettes are counted from
+	// disk, never hardcoded. ---
+	{
+		var stems, others, left, elapsed, snapBefore, snapAfter, peak0, stemSel;
+
+		others = (~ppLibRoot +/+ "palettes" +/+ "*.scd").pathMatch.collect { |p|
+			PathName(p).fileNameWithoutExtension
+		}.select { |n| ~ppStemValid.(n) }.collect { |n| n.asSymbol }.reject { |n| n == \classic };
+		others = others.sort { |a, b| a.asString <= b.asString };
+		stems = [\classic] ++ others;
+		if (stems.size < 2) {
+			fail.("palette stop and start", "only % palette file(s) on disk (%), expected classic and others".format(stems.size, stems));
+		};
+
+		sendSel.('/pp/progression', 'anthem');
+		if (waitSel.(\progressions, \anthem, 3).not) {
+			fail.("palette stop and start", "anthem was never selected (selection %)".format(~ppSel[\progressions]));
+		};
+		sendSel.('/pp/melody', 'classic_lead_loud');
+		if (waitSel.(\melodies, \classic_lead_loud, 3).not) {
+			fail.("palette stop and start", "classic_lead_loud was never selected (selection %)".format(~ppSel[\melodies]));
+		};
+
+		stems.do { |stem|
+			left = nil;
+			elapsed = 0;
+
+			sendSel.('/pp/palette', stem);
+			if (waitSel.(\palettes, stem, 3).not) {
+				fail.("palette stop and start", "palette % was never selected (selection %)".format(stem, ~ppSel[\palettes]));
+			};
+			if (layersStarted.(8).not) {
+				fail.("palette stop and start", "precondition: the layers never started playing under palette %".format(stem));
+			};
+			// The palette takes over at the next bar line.
+			while ({ (~ppPalPlaying != stem) and: { elapsed < (~clock.beatDur * 12) } }) {
+				0.1.wait;
+				elapsed = elapsed + 0.1;
+			};
+			if (~ppPalPlaying != stem) {
+				fail.("palette stop and start", "palette % never became the playing palette (playing %)".format(stem, ~ppPalPlaying));
+			};
+			if (waitLeadFlowing.(16, ~clock.beatDur * 12).not) {
+				fail.("palette stop and start", "precondition: the lead never rendered notes under palette %".format(stem));
+			};
+			if (instrChildCount.value == 0) {
+				fail.("palette stop and start", "precondition: no instrument nodes are sounding under palette %".format(stem));
+			};
+
+			// No bypass: with the master pre-gain at 0 the output stays silent.
+			~ppMasterSynth.set(\preGain, 0);
+			0.5.wait;
+			peak0 = measurePeak.(0, 1);
+			if (peak0 >= 0.001) {
+				fail.("palette stop and start", "bus 0 has signal % with the master pre-gain at 0 under palette %".format(peak0, stem));
+			};
+			~ppMasterSynth.set(\preGain, ~preGain);
+
+			// Stop: every voice released, nothing renders, nothing comes back.
+			sendPlay.(0);
+			if (waitForPlaying.(false, 3).not) {
+				fail.("palette stop and start", "/pp/play 0 did not stop the engine within 3s under palette %".format(stem));
+			};
+			elapsed = 0;
+			while ({ left != 0 and: { elapsed < 2.5 } }) {
+				left = instrChildCount.value;
+				if (left != 0) {
+					0.1.wait;
+					elapsed = elapsed + 0.1;
+				};
+			};
+			if (left != 0) {
+				fail.("palette stop and start", "instrument group still has % children 2.5 s after stop under palette %".format(left, stem));
+			};
+			snapBefore = roleSnapshot.value;
+			(~clock.beatDur * 8).wait;
+			snapAfter = roleSnapshot.value;
+			snapBefore.keysValuesDo { |r, n|
+				if (snapAfter[r] != n) {
+					fail.("palette stop and start", "role % rendered another bar after Stop under palette % (% -> %)".format(r, stem, n, snapAfter[r]));
+				};
+			};
+			~ppLayers.do { |n|
+				if (Pbindef(n).isPlaying) {
+					fail.("palette stop and start", "Pbindef(%) is still playing after Stop under palette %".format(n, stem));
+				};
+			};
+			if (instrChildCount.value != 0) {
+				fail.("palette stop and start", "instrument nodes appeared after Stop under palette %".format(stem));
+			};
+
+			// Start: the music plays again.
+			sendPlay.(1);
+			if (waitForPlaying.(true, 3).not) {
+				fail.("palette stop and start", "/pp/play 1 did not restart the engine within 3s under palette %".format(stem));
+			};
+			if (layersStarted.(8).not) {
+				fail.("palette stop and start", "the layers never started playing after Start under palette %".format(stem));
+			};
+		};
+
+		sendSel.('/pp/palette', 'classic');
+		if (waitSel.(\palettes, \classic, 3).not) {
+			fail.("palette stop and start", "classic was never re-selected for palettes (selection %)".format(~ppSel[\palettes]));
+		};
+		sendSel.('/pp/progression', 'classic');
+		if (waitSel.(\progressions, \classic, 3).not) {
+			fail.("palette stop and start", "classic was never re-selected for progressions (selection %)".format(~ppSel[\progressions]));
+		};
+		sendSel.('/pp/melody', 'classic');
+		if (waitSel.(\melodies, \classic, 3).not) {
+			fail.("palette stop and start", "classic was never re-selected for melodies (selection %)".format(~ppSel[\melodies]));
+		};
+		checkOk.("palette stop and start");
+	}.value;
+
+	// --- palette re-evaluation (Phase 7, ENG-05, D-08, T-07-17): with Palette on
+	// Auto, re-evaluating main.scd twice stacks nothing, keeps the auto selection,
+	// loads every palette file again, and Auto draws a palette again. ---
+	{
+		var stems, before, after, logBad, elapsed = 0, missing, drawn;
+
+		stems = (~ppLibRoot +/+ "palettes" +/+ "*.scd").pathMatch.collect { |p|
+			PathName(p).fileNameWithoutExtension
+		}.select { |n| ~ppStemValid.(n) }.collect { |n| n.asSymbol };
+
+		sendSel.('/pp/progression', 'anthem');
+		if (waitSel.(\progressions, \anthem, 3).not) {
+			fail.("palette re-evaluation", "anthem was never selected (selection %)".format(~ppSel[\progressions]));
+		};
+		sendSel.('/pp/palette', 'auto');
+		if (waitSel.(\palettes, \auto, 3).not) {
+			fail.("palette re-evaluation", "auto was never selected for palettes (selection %)".format(~ppSel[\palettes]));
+		};
+		// Every palette file is registered and the scan is idle before counting.
+		while ({
+			missing = stems.select { |n| ~ppLib[\palettes][n].isNil };
+			(~ppAutoPrefetching == true or: { missing.notEmpty }) and: { elapsed < 5 }
+		}) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		if (~ppAutoPrefetching == true) {
+			fail.("palette re-evaluation", "the palettes folder scan was still running 5 s after picking auto");
+		};
+		if (missing.notEmpty) {
+			fail.("palette re-evaluation", "palette files not loaded after picking auto: %".format(missing));
+		};
+
+		before = engineCounts.value;
+		~ppLogLines = List.new;
+		2.do {
+			reloadMain.value;
+			0.5.wait;
+		};
+		(~clock.beatDur * 4).wait;
+		after = engineCounts.value;
+
+		compareCounts.("palette re-evaluation", before, after);
+		if (after[\players] != 7) {
+			fail.("palette re-evaluation", "% EventStreamPlayers on ~clock, expected 7".format(after[\players]));
+		};
+		if (after[\routines] != 1) {
+			fail.("palette re-evaluation", "% Routines on ~clock, expected 1 (the ramp stepper)".format(after[\routines]));
+		};
+		if (~ppSel[\palettes] != \auto) {
+			fail.("palette re-evaluation", "palette selection is % after two re-evaluations, expected auto".format(~ppSel[\palettes]));
+		};
+
+		// The registry is rebuilt with classic only; the stored auto selection has
+		// to load every palette file again.
+		elapsed = 0;
+		while ({
+			missing = stems.select { |n| ~ppLib[\palettes][n].isNil };
+			(~ppAutoPrefetching == true or: { missing.notEmpty }) and: { elapsed < 5 }
+		}) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		if (~ppAutoPrefetching == true) {
+			fail.("palette re-evaluation", "the palettes folder scan was still running 5 s after the re-evaluations");
+		};
+		if (missing.notEmpty) {
+			fail.("palette re-evaluation", "palette files not loaded again after the re-evaluations on auto: %".format(missing));
+		};
+
+		// Auto must draw a palette again: a "PedalPulse: palette <name>:" line
+		// naming a palette other than classic.
+		elapsed = 0;
+		drawn = nil;
+		while ({
+			drawn = ~ppLogLines.detect { |l|
+				var t = l.asString;
+				(t.find("PedalPulse: palette ") == 0) and: { t.find("PedalPulse: palette classic:") != 0 }
+			};
+			drawn.isNil and: { elapsed < (~clock.beatDur * 40) }
+		}) {
+			0.1.wait;
+			elapsed = elapsed + 0.1;
+		};
+		if (drawn.isNil) {
+			fail.("palette re-evaluation", "Auto never drew a palette other than classic after the re-evaluations (log lines %)".format(~ppLogLines.collect { |l| l.asString }.select { |t| t.find("palette").notNil }));
+		};
+
+		logBad = ~ppLogLines.select { |l| l.asString.find("ERROR").notNil or: { l.asString.find("playing classic for this bar").notNil } };
+		if (logBad.notEmpty) {
+			fail.("palette re-evaluation", "log line during the re-evaluations: %".format(logBad.first));
+		};
+
+		sendSel.('/pp/palette', 'classic');
+		if (waitSel.(\palettes, \classic, 3).not) {
+			fail.("palette re-evaluation", "classic was never re-selected for palettes (selection %)".format(~ppSel[\palettes]));
+		};
+		sendSel.('/pp/progression', 'classic');
+		if (waitSel.(\progressions, \classic, 3).not) {
+			fail.("palette re-evaluation", "classic was never re-selected for progressions (selection %)".format(~ppSel[\progressions]));
+		};
+		checkOk.("palette re-evaluation");
 	}.value;
 
 	"SMOKE PASS".postln;
