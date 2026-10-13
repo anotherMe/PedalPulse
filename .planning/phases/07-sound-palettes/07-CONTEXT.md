@@ -23,7 +23,9 @@ Not in this phase: new arp/lead patterns (Phase 8), transition effects, fills, a
 
 ### Auto rotation
 - **D-05:** On Auto, one palette holds for **about 4–6 minutes**, roughly every second progression change. Count the hold in song bars so Stop pauses it, like progressions.
+  - *Approved 2026-10-13 (plan review):* the hold is 80–128 bars (2.9–5.7 min at 90–110 BPM) plus the wait for the next progression change, about 4.7–5.7 min per palette on average and roughly 3–8.5 min for a single palette.
 - **D-06:** **A palette change always lands on a progression change**, on the same bar a new progression cycle starts, so the music has a single "new chapter" moment.
+  - *Approved exceptions 2026-10-13 (plan review):* (1) the first random palette after Start (D-08) comes in at the next round start rather than waiting for a progression change; (2) if Progression Auto has only one progression it can play, palettes change at the end of its round (as in D-07) and the post window says so once.
 - **D-07:** If the progression is locked (no progression changes happen), Palette Auto still rotates on the same ~4–6 min timing, **landing at the end of the locked progression's cycle**.
 - **D-08:** **Random from the start.** Palette Auto does *not* open on `classic` (unlike progressions, Phase 6 D-09); the first palette after Start is a random pick. After that it shuffles with no quick repeats (never the current one or the last couple played), and any new palette file joins the rotation automatically. `classic` stays in the rotation. Engine startup with no GUI still defaults to `classic` (Phase 4 D-07), so the all-`classic` parity check is unaffected.
 - **D-09:** Every palette change (Auto or manual) **prints a post-window line with the palette's name and its `desc`** (e.g. `palette acid: squelchy 303 bass, ...`), so the rider can name what they heard. The app stays send-only.
