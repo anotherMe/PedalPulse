@@ -145,7 +145,7 @@ Plans:
   4. Switching palettes causes no noticeable volume jump, and VO2 at volume 100 on the loudest palette still never clips
   5. The standing exit gate holds for every palette (Stop silences its voices, nothing bypasses the limiter). CPU with the heaviest palette at VO2 is measured on the riding Mac and stays within the agreed budget for running next to Zwift
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -164,7 +164,7 @@ Plans:
 - [x] 07-05-PLAN.md — pluck, warm and air complete six palettes plus classic; the one-minute CPU command for the Zwift check
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 07-06-PLAN.md — Exit gate on the real engine for every palette (Stop, no limiter bypass, re-evaluation on Auto), README and template, full gate, the rider's listening and Zwift CPU check
+- [x] 07-06-PLAN.md — Exit gate on the real engine for every palette (Stop, no limiter bypass, re-evaluation on Auto), README and template, full gate, the rider's listening and Zwift CPU check
 
 ### Phase 8: Evolving Melodies
 
@@ -209,6 +209,6 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
 | 5. Library Selectors in the GUI | v2.0 | 3/3 | Complete    | 2026-10-12 |
 | 6. Shared Harmony & Progressions | v2.0 | 5/5 | Complete    | 2026-10-13 |
-| 7. Sound Palettes | v2.0 | 5/6 | In Progress | - |
+| 7. Sound Palettes | v2.0 | 6/6 | In Progress | - |
 | 8. Evolving Melodies | v2.0 | 0/TBD | Not started | - |
 | 9. Song Structure, EPIC Density & Ride Soak | v2.0 | 0/TBD | Not started | - |
