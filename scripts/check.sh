@@ -15,6 +15,11 @@
 # A brand-new file, or a byte-identical re-save, passes. Every variation is a
 # new file, so every earlier one stays selectable. The guard only reads git
 # state; its self-test runs in its own temporary repository.
+#
+# Changes are measured against a stable base, so a change that was already
+# committed is still caught: LIBRARY_GUARD_BASE=<git ref> if set, otherwise the
+# merge-base of HEAD with origin/main when that ref exists, otherwise HEAD
+# (uncommitted changes only).
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -50,20 +55,32 @@ fi
 # headless on its own, so make sure nothing upstream left this set.
 unset QT_QPA_PLATFORM
 
-# library_guard <repo_dir>: 0 = pass (or skipped), 1 = a committed library file
-# or golden was modified, deleted or renamed. Prints every offending file.
+# library_guard <repo_dir> [base_ref]: 0 = pass (or skipped), 1 = a committed
+# library file or golden was modified, deleted or renamed since base_ref (default
+# HEAD). Prints every offending file.
 library_guard() {
-	local repo="$1" bad
+	local repo="$1" base="${2:-HEAD}" bad
 	if ! git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		echo "CHECK SKIP: library guard (not a git work tree)"
 		return 0
 	fi
+	if ! git -C "$repo" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+		if [ "$base" = "HEAD" ]; then
+			echo "CHECK SKIP: library guard (no commits yet)"
+			return 0
+		fi
+		echo "LIBRARY GUARD FAIL: base ref '$base' does not resolve to a commit" >&2
+		return 1
+	fi
 	# Status letters: A added (passes), M modified, D deleted, T type change
 	# (all fail). --no-renames turns a rename into D + A, so it fails on the D.
 	# Untracked files never appear in git diff, so they pass.
-	bad=$(git -C "$repo" diff --name-status --no-renames HEAD -- \
-		'supercollider/library/*/[a-z0-9]*.scd' 'supercollider/golden/*.scd' \
-		| grep -v '^A' || true)
+	bad=$(git -C "$repo" diff --name-status --no-renames "$base" -- \
+		'supercollider/library/*/[a-z0-9]*.scd' 'supercollider/golden/*.scd') || {
+		echo "LIBRARY GUARD FAIL: git diff against '$base' failed" >&2
+		return 1
+	}
+	bad=$(printf '%s\n' "$bad" | grep -v '^A' | grep -v '^$' || true)
 	if [ -n "$bad" ]; then
 		echo "LIBRARY GUARD FAIL: committed library files and the golden must never be edited, renamed or deleted -- add a new file instead:"
 		echo "$bad"
@@ -137,6 +154,25 @@ library_guard_selftest() {
 
 	expect "clean again" 0
 
+	# A change that was already committed is caught against the older base, and
+	# a base that does not resolve fails instead of passing.
+	local base_ref
+	base_ref=$($g rev-parse HEAD)
+	echo "changed" >> "$tmp/$keep"
+	$g commit -q -am "self-test committed edit"
+	rc=0
+	library_guard "$tmp" "$base_ref" >/dev/null 2>&1 || rc=$?
+	if [ "$rc" -ne 1 ]; then
+		echo "LIBRARY GUARD SELF-TEST FAIL: committed edit against an older base (got $rc, wanted 1)" >&2
+		exit 1
+	fi
+	rc=0
+	library_guard "$tmp" "no-such-ref" >/dev/null 2>&1 || rc=$?
+	if [ "$rc" -ne 1 ]; then
+		echo "LIBRARY GUARD SELF-TEST FAIL: unresolvable base (got $rc, wanted 1)" >&2
+		exit 1
+	fi
+
 	# Outside any work tree the guard must say so, not pass silently.
 	local plain
 	plain=$(mktemp -d)
@@ -146,13 +182,28 @@ library_guard_selftest() {
 		exit 1
 	fi
 	rmdir "$plain"
+
+	# A repository with no commit yet says so, not a silent pass.
+	local fresh
+	fresh=$(mktemp -d)
+	git init -q "$fresh"
+	if ! library_guard "$fresh" | grep -qx 'CHECK SKIP: library guard (no commits yet)'; then
+		rm -rf "$fresh"
+		echo "LIBRARY GUARD SELF-TEST FAIL: no commits (no CHECK SKIP line)" >&2
+		exit 1
+	fi
+	rm -rf "$fresh"
 	echo "CHECK OK: library guard self-test"
 }
 
 # Run in a subshell so the self-test's trap and exit never touch this shell.
 ( library_guard_selftest )
 
-if library_guard .; then
+GUARD_BASE="${LIBRARY_GUARD_BASE:-}"
+if [ -z "$GUARD_BASE" ] && git rev-parse --verify --quiet 'origin/main^{commit}' >/dev/null 2>&1; then
+	GUARD_BASE=$(git merge-base HEAD origin/main 2>/dev/null || true)
+fi
+if library_guard . "${GUARD_BASE:-HEAD}"; then
 	echo "CHECK OK: library guard"
 else
 	exit 1
