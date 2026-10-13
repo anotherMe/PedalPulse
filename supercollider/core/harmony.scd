@@ -521,7 +521,9 @@
 
 // --- Core default bass and pad (D-12, D-13, D-14) ---
 // A progression file with chord data and no bass or pad generator is played by
-// these; a file may still define its own to override the core's part.
+// these; a file may still define its own to override the core's pad, and (since
+// Phase 7, D-02) its bass only while the classic palette plays: the bar's palette
+// decides the bass rhythm, see "Bass styles" below.
 
 // The chord's root as a bass note: the A1-based octave (MIDI 33 to 44).
 ~ppBassRoot = { |chord|
@@ -554,17 +556,25 @@
 	best
 };
 
+// The bass note that ends the bar, one rule for every bass style so they cannot
+// drift apart: the pickup toward the next chord when the chord changes at the next
+// bar, the chord's third otherwise.
+~ppBassLast = { |plan|
+	var chord = plan[\chord];
+	if (plan[\changesNext] == true) {
+		~ppBassPickup.(chord, plan[\nextChord])
+	} {
+		~ppBassRoot.(chord) + chord[\intervals][1]
+	}
+};
+
 // Offbeat eighths on the chord's root, as in classic; the last eighth is the
 // pickup toward the next chord when the chord changes at the next bar, and the
 // chord's third otherwise.
 ~ppDefaultBass = { |plan, state|
 	var chord = plan[\chord], root, last;
 	root = ~ppBassRoot.(chord);
-	last = if (plan[\changesNext] == true) {
-		~ppBassPickup.(chord, plan[\nextChord])
-	} {
-		root + chord[\intervals][1]
-	};
+	last = ~ppBassLast.(plan);
 	[
 		[\rest, 0.5, 0.1, 0.8],
 		[root, 0.5, 0.1, 0.8],
@@ -575,6 +585,61 @@
 		[\rest, 0.5, 0.1, 0.8],
 		[last, 0.5, 0.1, 0.8]
 	]
+};
+
+// --- Bass styles (Phase 7, D-02) ---
+// A palette file may name its bass rhythm with the optional key bassStyle (the
+// names are ~ppBassStyleNames in validate.scd). Each style is a plain bass
+// generator { |plan, state| } for the bar's chord and keeps the Phase 6 rules: every
+// sounding note is a tone of the chord, the first sounding note is the chord's
+// root, and the last sounding note is ~ppBassLast (the pickup toward the next chord
+// when it changes at the next bar, the chord's third otherwise). The styles keep no
+// state.
+//   eighths     offbeat eighths on the root (the core default bass itself)
+//   sixteenths  rolling sixteenths, a rest on each beat's first sixteenth (12 notes)
+//   octave      offbeat eighths: root, root an octave up, root, last
+// Who plays the bass since Phase 7: the classic palette plays the progression's own
+// bass (its generator, else ~ppDefaultBass for chord data), every other palette
+// plays its style under EVERY progression, the classic progression included (its
+// implicit chord is A minor every bar). A progression's own bass generator (only
+// classic.scd has one) is therefore heard only under the classic palette.
+~ppBassStyles = (
+	eighths: ~ppDefaultBass,
+	sixteenths: { |plan, state|
+		var root = ~ppBassRoot.(plan[\chord]), last = ~ppBassLast.(plan), rows = List.new;
+		4.do { |beat|
+			rows.add([\rest, 0.25, 0.1, 0.6]);
+			3.do { |k|
+				rows.add([if ((beat == 3) and: { k == 2 }) { last } { root }, 0.25, 0.1, 0.6]);
+			};
+		};
+		rows.asArray
+	},
+	octave: { |plan, state|
+		var root = ~ppBassRoot.(plan[\chord]), last = ~ppBassLast.(plan);
+		[
+			[\rest, 0.5, 0.1, 0.8],
+			[root, 0.5, 0.1, 0.8],
+			[\rest, 0.5, 0.1, 0.8],
+			[root + 12, 0.5, 0.1, 0.8],
+			[\rest, 0.5, 0.1, 0.8],
+			[root, 0.5, 0.1, 0.8],
+			[\rest, 0.5, 0.1, 0.8],
+			[last, 0.5, 0.1, 0.8]
+		]
+	}
+);
+
+// palStem -> the bass generator of that palette: ~ppBassStyles[its bassStyle], or
+// the eighths style when the key is missing, the stem is nil or the palette is not
+// registered.
+~ppBassStyleFor = { |palStem|
+	var pal = nil, name = nil;
+	if (palStem.notNil and: { ~ppLib.notNil } and: { ~ppLib[\palettes].notNil }) {
+		pal = ~ppLib[\palettes][palStem];
+	};
+	if (pal.notNil) { name = pal[\bassStyle] };
+	~ppBassStyles[name ? \eighths] ? ~ppDefaultBass
 };
 
 // One attack per chord, held across the chord in the voicing nearest the previous
