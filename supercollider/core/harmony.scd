@@ -48,9 +48,14 @@
 // Auto (D-08, D-10): how many bars Auto holds one progression, as [low, high] (a
 // whole number of cycles that adds up to about this many), the seed that makes the
 // order of an engine's rides replayable, and how many past picks Auto remembers.
+// ~ppAutoPicks counts every random draw since the interpreter started. It lives
+// here, not in the per-run state, so Stop then Start continues the sequence
+// instead of replaying the same order; a fresh interpreter with the same seed
+// replays a heard order from the start.
 ~ppAutoHoldBars = ~ppAutoHoldBars ? [32, 64];
 ~ppAutoSeed = ~ppAutoSeed ? (Date.getDate.rawSeconds % 1000000).asInteger;
 ~ppAutoHistoryCap = 8;
+~ppAutoPicks = ~ppAutoPicks ? 0;
 
 // --- Chords ---
 // A chord record: (rootPc:, intervals:, pcs:, name:, extraPcs:). rootPc and pcs
@@ -190,8 +195,9 @@
 };
 
 // --- Auto (D-08, D-09, D-10, D-11) ---
-// The state lives in ~ppHarm[\auto] = (current:, holdLeft:, history:, picks:), so a
-// new run (Start, restart) begins a new rotation, always on classic (D-09).
+// The state lives in ~ppHarm[\auto] = (current:, holdLeft:, history:), so a new
+// run (Start, restart) begins a new rotation, always on classic (D-09). The draw
+// counter ~ppAutoPicks is not part of it, so each run draws different picks.
 
 // -> the candidates for Auto's next pick, sorted by name (Dictionary order is not
 // stable): every registered progression with a valid name whose file is in the
@@ -226,8 +232,8 @@
 	ending = ~ppHarm[\cycle];
 	endStem = if (ending.notNil) { ending[\stem] } { nil };
 	seedFor = {
-		thisThread.randSeed = ((~ppAutoSeed * 1000003) + (a[\picks] * 7919) + 104729) & 0x7FFFFFFF;
-		a[\picks] = a[\picks] + 1;
+		thisThread.randSeed = ((~ppAutoSeed * 1000003) + (~ppAutoPicks * 7919) + 104729) & 0x7FFFFFFF;
+		~ppAutoPicks = ~ppAutoPicks + 1;
 	};
 	holdFor = { |st|
 		var len = ~ppHarmCycle.(st, ~ppLib[\progressions][st])[\len];
@@ -330,7 +336,7 @@
 		h = (
 			sig: [clock, base], entries: Dictionary.new, last: nil, cycle: nil,
 			pending: nil, voicing: nil, cycleLog: List.new, lastStem: nil,
-			auto: (current: nil, holdLeft: 0, history: List.new, picks: 0)
+			auto: (current: nil, holdLeft: 0, history: List.new)
 		);
 		~ppHarm = h;
 	};

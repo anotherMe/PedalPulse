@@ -126,9 +126,10 @@ When Progression is on Auto:
   it played.
 - A progression file you add while the engine runs joins the rotation by itself.
 - The post window prints `PedalPulse: progression auto seed <n>` once when the
-  engine starts. The same seed gives the same order, so a ride you liked can be
-  replayed.
-- Stop and then Start begins again on `classic`.
+  engine starts. The same seed on a freshly started SuperCollider gives the same
+  order, so a ride you liked can be replayed.
+- Stop and then Start begins again on `classic`, then picks differently from the
+  last run: the draws continue until SuperCollider is restarted.
 
 You can always see what Auto chose in the post window: it prints
 `PedalPulse: progression <name>: <chords>` at every change.
