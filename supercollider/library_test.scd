@@ -759,6 +759,8 @@ fork({
 		wrs.("progressions/long_cycle.scd", cf.("barsPerChord: 8,\n", "(root: 0, quality: \\min), (root: 8, quality: \\maj), (root: 3, quality: \\maj)"));
 		// A valid chord file whose own bass plays a note outside its chord: the strict branch must refuse it.
 		wrs.("progressions/strict_bass.scd", "(\ndesc: \"bass outside the chord\",\nbass: { |plan, state| [[34, 4, 0.1, 0.8]] },\nchords: [(root: 0, quality: \\min)]\n)\n");
+		// WR-02: a palette whose role uses another palette's voice (the stem is foreign_role).
+		wrs.("palettes/foreign_role.scd", "(\ndesc: \"uses another palette's voice\",\ndefs: {\n\tSynthDef(\\pp_other_arp, { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.5, 0.2), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;\n},\nroles: (arp: (instrument: \\pp_other_arp))\n)\n");
 
 		bad = staticCheck.(staticTmp, true);
 		currentEnvironment.removeAt(\ppStaticProbeVar);
@@ -781,6 +783,7 @@ fork({
 		expectFailure.("0 bars on a chord", "chord 1 bars is not an Integer from 1 to 8");
 		expectFailure.("a 24-bar cycle", "the cycle is 24 bars, more than 16");
 		expectFailure.("a bass note outside its chord", "progressions/strict_bass bass bar 0: note 34 is not in chord Am");
+		expectFailure.("a palette using another palette's voice", "does not start with pp_foreign_role_");
 		if (bad.any { |f| f.beginsWith("melodies/classic") or: { f.beginsWith("palettes/classic") } }) {
 			fail.("static check catches bad files", "a good classic file failed in the temporary library: %".format(bad));
 		};
@@ -2532,6 +2535,90 @@ fork({
 				if (~ppSel[\palettes] != \classic) {
 					fail.(name, "~ppSel[\\palettes] is % at the end, expected classic".format(~ppSel[\palettes]));
 				};
+				checkOk.(name);
+			}.value;
+
+			// 5c. palette voice namespace (WR-02, D-16): a palette can only own voices
+			// under its own pp_<name>_ prefix, and a refused palette leaves no
+			// voices behind and restores what it touched. Three fixtures in the
+			// temporary root, each selected by name while the engine runs. The
+			// compiled bytes of a SynthDef are the proof that a voice is the
+			// owner's again.
+			{
+				var descBytes, voice, palText, refused, errLine, restoreSel;
+				var path, before, bytesBefore, rev1, bytes1, name;
+
+				descBytes = { |nm| SynthDescLib.global.synthDescs[nm] !? { |d| d.def.asBytes } };
+				voice = { |nm, wave|
+					"SynthDef('%', { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.005, 0.05, 0.5, 0.1), gate, doneAction: 2); Out.ar(out, (%.ar(freq) * env * amp) ! 2) }).add;".format(nm, wave)
+				};
+				palText = { |desc, defsText, inst|
+					"(\ndesc: \"%\",\ndefs: {\n%\n},\nroles: (arp: (instrument: '%'))\n)\n".format(desc, defsText, inst)
+				};
+				// The selection routine's last line for a refused pick, logged after the
+				// guard's undo and its s.sync.
+				refused = { |since, stem|
+					waitFor.({ newLogs.(since).any { |l| l.find("/pp/palette % refused".format(stem)).notNil } }, 3)
+				};
+				errLine = { |since, path, needle|
+					newLogs.(since).any { |l| l.find("ERROR").notNil and: { l.find(path).notNil } and: { l.find(needle).notNil } }
+				};
+				restoreSel = { |nm|
+					sendSel.('/pp/palette', 'classic');
+					if (waitFor.({ ~ppSel[\palettes] == \classic }, 3).not) {
+						fail.(nm, "~ppSel[\\palettes] never returned to classic");
+					};
+				};
+
+				// palette defs stay in their prefix: redefining classic's ppArp refuses
+				// the file, removes what it added and puts classic's voice back.
+				name = "palette defs stay in their prefix";
+				bytesBefore = descBytes.(\ppArp);
+				if (bytesBefore.isNil) { fail.(name, "classic's ppArp is not defined before the fixture") };
+				wr.("palettes/clobber.scd", palText.("clobbers classic's arp", voice.("pp_clobber_arp", "SinOsc") ++ "\n" ++ voice.("ppArp", "Saw"), "pp_clobber_arp"));
+				path = tmpRoot +/+ "palettes/clobber.scd";
+				before = ~ppLogCount;
+				sendSel.('/pp/palette', 'clobber');
+				if (refused.(before, "clobber").not) { fail.(name, "no refusal line for clobber in %".format(newLogs.(before))) };
+				if (errLine.(before, path, "ppArp").not) { fail.(name, "no ERROR line naming % and ppArp in %".format(path, newLogs.(before))) };
+				if (SynthDescLib.global.synthDescs[\pp_clobber_arp].notNil) { fail.(name, "pp_clobber_arp was left behind by the refused palette") };
+				if (descBytes.(\ppArp) != bytesBefore) { fail.(name, "ppArp is not classic's again after the refusal") };
+				if (~ppSel[\palettes] != \classic) { fail.(name, "the palette selection changed to %".format(~ppSel[\palettes])) };
+				checkOk.(name);
+
+				// refused palette leaves no voices: defs adds a voice, then throws.
+				name = "refused palette leaves no voices";
+				wr.("palettes/half_defs.scd", palText.("adds a voice then throws", voice.("pp_half_defs_arp", "SinOsc") ++ "\nError(\"boom after adding\").throw;", "pp_half_defs_arp"));
+				path = tmpRoot +/+ "palettes/half_defs.scd";
+				before = ~ppLogCount;
+				sendSel.('/pp/palette', 'half_defs');
+				if (refused.(before, "half_defs").not) { fail.(name, "no refusal line for half_defs in %".format(newLogs.(before))) };
+				if (errLine.(before, path, "boom after adding").not) { fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before))) };
+				if (SynthDescLib.global.synthDescs[\pp_half_defs_arp].notNil) { fail.(name, "pp_half_defs_arp was left behind by the refused palette") };
+				if (~ppSel[\palettes] != \classic) { fail.(name, "the palette selection changed to %".format(~ppSel[\palettes])) };
+				checkOk.(name);
+
+				// refused reload restores the last good voices: a loaded palette is
+				// rewritten into a bad file; its last good voices keep playing.
+				name = "refused reload restores the last good voices";
+				wr.("palettes/fixpal.scd", palText.("fixture palette", voice.("pp_fixpal_arp", "SinOsc"), "pp_fixpal_arp"));
+				path = tmpRoot +/+ "palettes/fixpal.scd";
+				sendSel.('/pp/palette', 'fixpal');
+				if (waitFor.({ ~ppSel[\palettes] == \fixpal }, 3).not) { fail.(name, "~ppSel[\\palettes] never became fixpal") };
+				bytes1 = descBytes.(\pp_fixpal_arp);
+				if (bytes1.isNil) { fail.(name, "pp_fixpal_arp is not defined after the first load") };
+				rev1 = ~ppLib[\palettes][\fixpal][\rev];
+				1.1.wait;  // the file's modification time must change
+				wr.("palettes/fixpal.scd", palText.("fixture palette, now broken", voice.("pp_fixpal_arp", "Saw") ++ "\n" ++ voice.("pp_fixpal_extra", "Saw") ++ "\nError(\"boom after redefining\").throw;", "pp_fixpal_arp"));
+				before = ~ppLogCount;
+				sendSel.('/pp/palette', 'fixpal');
+				if (refused.(before, "fixpal").not) { fail.(name, "no refusal line for the rewritten fixpal in %".format(newLogs.(before))) };
+				if (errLine.(before, path, "boom after redefining").not) { fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before))) };
+				if (~ppSel[\palettes] != \fixpal) { fail.(name, "the selection is % instead of fixpal".format(~ppSel[\palettes])) };
+				if (~ppLib[\palettes][\fixpal][\rev] != rev1) { fail.(name, "the registry copy changed from rev % to %".format(rev1, ~ppLib[\palettes][\fixpal][\rev])) };
+				if (descBytes.(\pp_fixpal_arp) != bytes1) { fail.(name, "pp_fixpal_arp is not the first version's again") };
+				if (SynthDescLib.global.synthDescs[\pp_fixpal_extra].notNil) { fail.(name, "pp_fixpal_extra was left behind by the refused reload") };
+				restoreSel.(name);
 				checkOk.(name);
 			}.value;
 
