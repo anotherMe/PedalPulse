@@ -102,7 +102,7 @@
 	// validator that itself throws on a hostile value counts as a refusal.
 	if (failed.not) {
 		reasons = try {
-			~ppValidate.(cat, mod)
+			~ppValidate.(cat, mod, stem.asSymbol)
 		} { |err|
 			["validation threw: %".format(err.errorString)]
 		};
@@ -121,26 +121,155 @@
 	}
 };
 
+// --- Palette defs guard (Phase 7, WR-02, D-16) ---
+// A palette's defs add SynthDefs that are global by name, so two palettes (or a
+// palette and classic) could overwrite each other's voices. This is the only
+// place palette defs run (the engine's loader, the library check's static tier
+// and its voice tier all call it), so there is one definition of "valid".
+//
+// ~ppPaletteDefs.(mod, stem, prev) -> (reasons:, added:, replaced:, undo:)
+//   mod   the palette module Event, stem its file name (Symbol)
+//   prev  the module already registered under this stem, or nil
+// It takes a snapshot of SynthDescLib.global.synthDescs, runs mod[\defs] under
+// try, then lists every voice name whose SynthDesc is new (added) or a different
+// object than before (replaced; a re-added SynthDef puts a new SynthDesc). The
+// names a file may define: for classic its six (~ppClassicVoices), otherwise
+// names starting with pp_<stem>_ . A replaced name must also belong to this stem
+// and no longer palette name (stems a and a_b share the start pp_a_). reasons is
+// empty when defs ran cleanly and stayed in its names.
+// undo is a Function that, on a refusal, calls SynthDef.removeAt for every added
+// name (this also sends /d_free) and re-runs the owner's defs for every replaced
+// name: prev's for the stem's own names, classic's registered defs for a
+// ~ppClassicVoices name, the registered palette whose prefix matches for any other
+// pp_<x>_ name. A replaced name that no library file owns (for example an engine
+// voice from main.scd) is logged as an ERROR; re-evaluating main.scd restores it.
+// The function never calls s.sync (the static tier has no server): callers sync.
+~ppPaletteDefs = { |mod, stem, prev|
+	var lib = SynthDescLib.global, snap, reasons = List.new, added = List.new, replaced = List.new;
+	var ownPrefix, registry, ownerOf, allowed, undo;
+	stem = stem.asSymbol;
+	ownPrefix = "pp_" ++ stem.asString ++ "_";
+	registry = if (~ppLib.notNil) { ~ppLib[\palettes] } { nil };
+	registry = registry ? ();
+	// The palette a voice name belongs to: classic for its six, otherwise the
+	// registered palette (or this stem) with the longest matching pp_<x>_ prefix.
+	ownerOf = { |nm|
+		var best = nil;
+		if (~ppClassicVoices.includes(nm)) {
+			best = \classic;
+		} {
+			(registry.keys.asArray ++ [stem]).do { |k|
+				var kp = "pp_" ++ k.asString ++ "_";
+				if (nm.asString.beginsWith(kp) and: { best.isNil or: { k.asString.size > best.asString.size } }) {
+					best = k;
+				};
+			};
+		};
+		best
+	};
+	snap = lib.synthDescs.copy;
+	if (mod[\defs].isFunction) {
+		try {
+			mod[\defs].value;
+		} { |err|
+			reasons.add("defs failed: %".format(err.errorString));
+		};
+	};
+	// The diff is taken even after a throw: whatever defs added before it threw
+	// must be undone.
+	lib.synthDescs.keysValuesDo { |nm, desc|
+		if (snap[nm].isNil) {
+			added.add(nm);
+		} {
+			if (snap[nm] !== desc) { replaced.add(nm) };
+		};
+	};
+	allowed = { |nm|
+		if (stem == \classic) {
+			~ppClassicVoices.includes(nm)
+		} {
+			nm.asString.beginsWith(ownPrefix) and: { replaced.includes(nm).not or: { ownerOf.(nm) == stem } }
+		}
+	};
+	(added ++ replaced).do { |nm|
+		if (allowed.(nm).not) {
+			if (stem == \classic) {
+				reasons.add("defs defines voice % that is not one of classic's six voices".format(nm));
+			} {
+				reasons.add("defs defines voice % outside pp_%_".format(nm, stem));
+			};
+		};
+	};
+	undo = {
+		var todo = List.new;
+		added.do { |nm|
+			try { SynthDef.removeAt(nm) } { |err|
+				~ppLog.("PedalPulse ERROR: could not remove voice % of refused palette %: %".format(nm, stem, err.errorString));
+			};
+		};
+		replaced.do { |nm|
+			var owner = ownerOf.(nm), module = nil;
+			if (owner == stem) { module = prev } { if (owner.notNil) { module = registry[owner] } };
+			if (module.notNil and: { module[\defs].isFunction }) {
+				if (todo.any { |m| m === module }.not) { todo.add(module) };
+			} {
+				if ((owner == stem) and: { nm.asString.beginsWith(ownPrefix) }) {
+					// The refused file's own name and nothing registered to go back to.
+					try { SynthDef.removeAt(nm) } { |err| nil };
+				} {
+					~ppLog.("PedalPulse ERROR: palette % replaced voice % that no library file owns -- re-evaluate main.scd to restore it".format(stem, nm));
+				};
+			};
+		};
+		todo.do { |m|
+			try { m[\defs].value } { |err|
+				~ppLog.("PedalPulse ERROR: could not restore the voices of palette %: %".format(m[\name], err.errorString));
+			};
+		};
+	};
+	(reasons: reasons.asArray, added: added.asArray, replaced: replaced.asArray, undo: undo)
+};
+
 // Load from disk and register. Runs only inside a Routine (palettes call s.sync).
 // Loads on every call, so selecting a name again reloads it. On any failure
 // (load, validation, defs, voices) the registry is left untouched, so the last
 // good copy keeps playing, and false is returned after an ERROR line naming the
-// file. Success is the single registry put at the end.
+// file. Success is the single registry put at the end. Palette defs run only
+// through ~ppPaletteDefs: a refused palette's added voices are removed and the
+// voices it replaced are restored before the s.sync, so the palette playing never
+// changes sound.
 ~ppLibEnsure = { |cat, stem|
-	var mod, prev, ok = true, reasons;
+	var mod, prev, ok = true, reasons, res, undoNow;
 	mod = ~ppLibLoad.(cat, stem);
 	if (mod.isNil) {
 		ok = false;
 	} {
 		if (cat == \palettes) {
 			// defs is optional: a palette may only re-map voices that already exist.
-			if (mod[\defs].isFunction) {
-				try {
-					mod[\defs].value;
-					s.sync;
-				} { |err|
-					~ppLog.("PedalPulse ERROR: library file % defs failed: %".format(mod[\path], err.errorString));
-					ok = false;
+			res = try {
+				~ppPaletteDefs.(mod, stem.asSymbol, ~ppLib[cat][stem.asSymbol])
+			} { |err|
+				(reasons: ["defs guard threw: %".format(err.errorString)], undo: { nil })
+			};
+			undoNow = {
+				try { res[\undo].value } { |err|
+					~ppLog.("PedalPulse ERROR: library file % could not undo its defs: %".format(mod[\path], err.errorString));
+				};
+				try { s.sync } { |err| nil };
+			};
+			if (res[\reasons].size > 0) {
+				~ppLog.("PedalPulse ERROR: library file % defs refused: %".format(mod[\path], res[\reasons].join("; ")));
+				undoNow.value;
+				ok = false;
+			} {
+				if (mod[\defs].isFunction) {
+					try {
+						s.sync;
+					} { |err|
+						~ppLog.("PedalPulse ERROR: library file % defs refused: sync failed: %".format(mod[\path], err.errorString));
+						undoNow.value;
+						ok = false;
+					};
 				};
 			};
 			if (ok) {
@@ -151,6 +280,7 @@
 				};
 				if (reasons.size > 0) {
 					~ppLog.("PedalPulse ERROR: library file % has invalid voices: %".format(mod[\path], reasons.join("; ")));
+					undoNow.value;
 					ok = false;
 				};
 			};

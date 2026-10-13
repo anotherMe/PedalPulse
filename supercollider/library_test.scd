@@ -496,7 +496,7 @@ staticCheck = { |libRoot, quiet|
 	var failures = List.new, savedRoot, add, roleGens;
 	var snapKeys, snapPdef, snapTdef, snapOsc, newKeys, grown, logBefore;
 	var src, hit, mod, state, passA, passB, runPass, reasons, rendered, direct, fresh;
-	var stem, ok, nfail, path, dir, stems, sel, pre, names, ls;
+	var stem, ok, nfail, path, dir, stems, sel, pre, names, ls, defsRes;
 
 	savedRoot = ~ppLibRoot;
 	~ppLibRoot = libRoot;
@@ -513,7 +513,9 @@ staticCheck = { |libRoot, quiet|
 			pre[\rev] = 1;
 			~ppLib[cat].put(\classic, pre);
 			if ((cat == \palettes) and: { pre[\defs].isFunction }) {
-				try { pre[\defs].value } { |err| add.("palettes/classic defs threw: %".format(err.errorString)) };
+				// Palette defs only ever run through the engine's own guard (WR-02).
+				defsRes = ~ppPaletteDefs.(pre, \classic, nil);
+				defsRes[\reasons].do { |r| add.("palettes/classic %".format(r)) };
 			};
 		};
 	};
@@ -608,7 +610,9 @@ staticCheck = { |libRoot, quiet|
 					// (d) palette voices exist with the right controls.
 					if (cat == \palettes) {
 						if (mod[\defs].isFunction) {
-							try { mod[\defs].value } { |err| add.("% defs threw: %".format(label, err.errorString)) };
+							defsRes = ~ppPaletteDefs.(mod, stem, ~ppLib[cat][stem]);
+							defsRes[\reasons].do { |r| add.("% %".format(label, r)) };
+							if (defsRes[\reasons].size > 0) { defsRes[\undo].value };
 						};
 						reasons = ~ppValidateVoices.(mod);
 						reasons.do { |r| add.("% %".format(label, r)) };
@@ -759,6 +763,8 @@ fork({
 		wrs.("progressions/long_cycle.scd", cf.("barsPerChord: 8,\n", "(root: 0, quality: \\min), (root: 8, quality: \\maj), (root: 3, quality: \\maj)"));
 		// A valid chord file whose own bass plays a note outside its chord: the strict branch must refuse it.
 		wrs.("progressions/strict_bass.scd", "(\ndesc: \"bass outside the chord\",\nbass: { |plan, state| [[34, 4, 0.1, 0.8]] },\nchords: [(root: 0, quality: \\min)]\n)\n");
+		// WR-02: a palette whose role uses another palette's voice (the stem is foreign_role).
+		wrs.("palettes/foreign_role.scd", "(\ndesc: \"uses another palette's voice\",\ndefs: {\n\tSynthDef(\\pp_other_arp, { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.01, 0.1, 0.5, 0.2), gate, doneAction: 2); Out.ar(out, (SinOsc.ar(freq) * env * amp) ! 2) }).add;\n},\nroles: (arp: (instrument: \\pp_other_arp))\n)\n");
 
 		bad = staticCheck.(staticTmp, true);
 		currentEnvironment.removeAt(\ppStaticProbeVar);
@@ -781,6 +787,7 @@ fork({
 		expectFailure.("0 bars on a chord", "chord 1 bars is not an Integer from 1 to 8");
 		expectFailure.("a 24-bar cycle", "the cycle is 24 bars, more than 16");
 		expectFailure.("a bass note outside its chord", "progressions/strict_bass bass bar 0: note 34 is not in chord Am");
+		expectFailure.("a palette using another palette's voice", "does not start with pp_foreign_role_");
 		if (bad.any { |f| f.beginsWith("melodies/classic") or: { f.beginsWith("palettes/classic") } }) {
 			fail.("static check catches bad files", "a good classic file failed in the temporary library: %".format(bad));
 		};
@@ -1089,6 +1096,37 @@ fork({
 			checkOk.("harmony units");
 		}.value;
 
+		// ---- Shipped rows within bounds (WR-01, D-16): server-free ----
+		// Every row the core's own pad and bass generators can return, for each
+		// chord length from 1 to 8 bars (the pad legato reaches 7.2 on an 8-bar
+		// chord), must pass the new upper bounds of ~ppRowsValid. The reviewer's
+		// suggested legato cap of 4 would have refused a legal progression's pad.
+		{
+			var req, mod, cyc, chord, nextChord, plan, rows, why;
+
+			req = { |ok, what| if (ok.not) { fail.("shipped rows within bounds", what) } };
+			mod = ~ppLibLoad.(\progressions, \anthem);
+			req.(mod.notNil, "could not load progressions/anthem");
+			cyc = ~ppHarmCycle.(\anthem, mod);
+			chord = cyc[\spans][0][\chord];
+			nextChord = cyc[\spans][1][\chord];
+			(1..8).do { |bars|
+				plan = (chord: chord, nextChord: nextChord, changesNext: true, chordBar: 0, chordBars: bars, voicing: ~ppPadHome);
+				rows = ~ppDefaultPad.(plan, ());
+				why = ~ppRowsValid.(rows);
+				req.(why.isNil, "the default pad on a % bar chord is refused: %".format(bars, why));
+			};
+			plan = (chord: chord, nextChord: nextChord, changesNext: true, chordBar: 1, chordBars: 2, voicing: ~ppPadHome);
+			why = ~ppRowsValid.(~ppDefaultPad.(plan, ()));
+			req.(why.isNil, "the default pad's silent bar is refused: %".format(why));
+			[true, false].do { |changes|
+				plan = (chord: chord, nextChord: nextChord, changesNext: changes, chordBar: 0, chordBars: 1, voicing: ~ppPadHome);
+				why = ~ppRowsValid.(~ppDefaultBass.(plan, ()));
+				req.(why.isNil, "the default bass (changesNext %) is refused: %".format(changes, why));
+			};
+			checkOk.("shipped rows within bounds");
+		}.value;
+
 		// ---- Shipped progressions (HARM-02, D-04..D-07): the real files on disk ----
 		// What every shipped progression must play, pinned by name, cycle length and
 		// (where it matters) the span of each chord. A wrong root number in a file is
@@ -1312,11 +1350,16 @@ fork({
 			// Every palette file (classic first, then sorted), templates included.
 			palStems = listStems.(~ppLibRoot +/+ "palettes");
 			palStems.do { |stemStr|
-				var mod, pairs = List.new, results, bad = List.new;
+				var mod, pairs = List.new, results, bad = List.new, defsRes;
 				mod = ~ppLibLoad.(\palettes, stemStr.asSymbol);
 				if (mod.isNil) { fail.("voices %".format(stemStr), "the palette did not load") };
 				if (mod[\defs].isFunction) {
-					try { mod[\defs].value } { |err| fail.("voices %".format(stemStr), "defs threw: %".format(err.errorString)) };
+					// The same guard the engine uses (WR-02): a palette's defs only
+					// define voices under its own name.
+					defsRes = ~ppPaletteDefs.(mod, stemStr.asSymbol, nil);
+					if (defsRes[\reasons].size > 0) {
+						fail.("voices %".format(stemStr), "defs refused: %".format(defsRes[\reasons].join("; ")));
+					};
 				};
 				s.sync;
 				(~ppDrumRoles ++ ~ppPitchedRoles).do { |role|
@@ -2504,6 +2547,90 @@ fork({
 				checkOk.(name);
 			}.value;
 
+			// 5c. palette voice namespace (WR-02, D-16): a palette can only own voices
+			// under its own pp_<name>_ prefix, and a refused palette leaves no
+			// voices behind and restores what it touched. Three fixtures in the
+			// temporary root, each selected by name while the engine runs. The
+			// compiled bytes of a SynthDef are the proof that a voice is the
+			// owner's again.
+			{
+				var descBytes, voice, palText, refused, errLine, restoreSel;
+				var path, before, bytesBefore, rev1, bytes1, name;
+
+				descBytes = { |nm| SynthDescLib.global.synthDescs[nm] !? { |d| d.def.asBytes } };
+				voice = { |nm, wave|
+					"SynthDef('%', { |out = 0, amp = 0.1, freq = 440, gate = 1| var env = EnvGen.kr(Env.adsr(0.005, 0.05, 0.5, 0.1), gate, doneAction: 2); Out.ar(out, (%.ar(freq) * env * amp) ! 2) }).add;".format(nm, wave)
+				};
+				palText = { |desc, defsText, inst|
+					"(\ndesc: \"%\",\ndefs: {\n%\n},\nroles: (arp: (instrument: '%'))\n)\n".format(desc, defsText, inst)
+				};
+				// The selection routine's last line for a refused pick, logged after the
+				// guard's undo and its s.sync.
+				refused = { |since, stem|
+					waitFor.({ newLogs.(since).any { |l| l.find("/pp/palette % refused".format(stem)).notNil } }, 3)
+				};
+				errLine = { |since, path, needle|
+					newLogs.(since).any { |l| l.find("ERROR").notNil and: { l.find(path).notNil } and: { l.find(needle).notNil } }
+				};
+				restoreSel = { |nm|
+					sendSel.('/pp/palette', 'classic');
+					if (waitFor.({ ~ppSel[\palettes] == \classic }, 3).not) {
+						fail.(nm, "~ppSel[\\palettes] never returned to classic");
+					};
+				};
+
+				// palette defs stay in their prefix: redefining classic's ppArp refuses
+				// the file, removes what it added and puts classic's voice back.
+				name = "palette defs stay in their prefix";
+				bytesBefore = descBytes.(\ppArp);
+				if (bytesBefore.isNil) { fail.(name, "classic's ppArp is not defined before the fixture") };
+				wr.("palettes/clobber.scd", palText.("clobbers classic's arp", voice.("pp_clobber_arp", "SinOsc") ++ "\n" ++ voice.("ppArp", "Saw"), "pp_clobber_arp"));
+				path = tmpRoot +/+ "palettes/clobber.scd";
+				before = ~ppLogCount;
+				sendSel.('/pp/palette', 'clobber');
+				if (refused.(before, "clobber").not) { fail.(name, "no refusal line for clobber in %".format(newLogs.(before))) };
+				if (errLine.(before, path, "ppArp").not) { fail.(name, "no ERROR line naming % and ppArp in %".format(path, newLogs.(before))) };
+				if (SynthDescLib.global.synthDescs[\pp_clobber_arp].notNil) { fail.(name, "pp_clobber_arp was left behind by the refused palette") };
+				if (descBytes.(\ppArp) != bytesBefore) { fail.(name, "ppArp is not classic's again after the refusal") };
+				if (~ppSel[\palettes] != \classic) { fail.(name, "the palette selection changed to %".format(~ppSel[\palettes])) };
+				checkOk.(name);
+
+				// refused palette leaves no voices: defs adds a voice, then throws.
+				name = "refused palette leaves no voices";
+				wr.("palettes/half_defs.scd", palText.("adds a voice then throws", voice.("pp_half_defs_arp", "SinOsc") ++ "\nError(\"boom after adding\").throw;", "pp_half_defs_arp"));
+				path = tmpRoot +/+ "palettes/half_defs.scd";
+				before = ~ppLogCount;
+				sendSel.('/pp/palette', 'half_defs');
+				if (refused.(before, "half_defs").not) { fail.(name, "no refusal line for half_defs in %".format(newLogs.(before))) };
+				if (errLine.(before, path, "boom after adding").not) { fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before))) };
+				if (SynthDescLib.global.synthDescs[\pp_half_defs_arp].notNil) { fail.(name, "pp_half_defs_arp was left behind by the refused palette") };
+				if (~ppSel[\palettes] != \classic) { fail.(name, "the palette selection changed to %".format(~ppSel[\palettes])) };
+				checkOk.(name);
+
+				// refused reload restores the last good voices: a loaded palette is
+				// rewritten into a bad file; its last good voices keep playing.
+				name = "refused reload restores the last good voices";
+				wr.("palettes/fixpal.scd", palText.("fixture palette", voice.("pp_fixpal_arp", "SinOsc"), "pp_fixpal_arp"));
+				path = tmpRoot +/+ "palettes/fixpal.scd";
+				sendSel.('/pp/palette', 'fixpal');
+				if (waitFor.({ ~ppSel[\palettes] == \fixpal }, 3).not) { fail.(name, "~ppSel[\\palettes] never became fixpal") };
+				bytes1 = descBytes.(\pp_fixpal_arp);
+				if (bytes1.isNil) { fail.(name, "pp_fixpal_arp is not defined after the first load") };
+				rev1 = ~ppLib[\palettes][\fixpal][\rev];
+				1.1.wait;  // the file's modification time must change
+				wr.("palettes/fixpal.scd", palText.("fixture palette, now broken", voice.("pp_fixpal_arp", "Saw") ++ "\n" ++ voice.("pp_fixpal_extra", "Saw") ++ "\nError(\"boom after redefining\").throw;", "pp_fixpal_arp"));
+				before = ~ppLogCount;
+				sendSel.('/pp/palette', 'fixpal');
+				if (refused.(before, "fixpal").not) { fail.(name, "no refusal line for the rewritten fixpal in %".format(newLogs.(before))) };
+				if (errLine.(before, path, "boom after redefining").not) { fail.(name, "no ERROR line naming % in %".format(path, newLogs.(before))) };
+				if (~ppSel[\palettes] != \fixpal) { fail.(name, "the selection is % instead of fixpal".format(~ppSel[\palettes])) };
+				if (~ppLib[\palettes][\fixpal][\rev] != rev1) { fail.(name, "the registry copy changed from rev % to %".format(rev1, ~ppLib[\palettes][\fixpal][\rev])) };
+				if (descBytes.(\pp_fixpal_arp) != bytes1) { fail.(name, "pp_fixpal_arp is not the first version's again") };
+				if (SynthDescLib.global.synthDescs[\pp_fixpal_extra].notNil) { fail.(name, "pp_fixpal_extra was left behind by the refused reload") };
+				restoreSel.(name);
+				checkOk.(name);
+			}.value;
+
 			// ============================================================
 			// Containment tier (LIB-04, LIB-06): a file that loads fine but
 			// misbehaves while playing. Same temporary library root.
@@ -2516,7 +2643,13 @@ fork({
 				good = [
 					["16 rows of a sixteenth", Array.fill(16, { [60, 0.25, 0.1, 0.5] })],
 					["4.0000005 beats", [[60, 2, 0.1, 0.5], [60, 2.0000005, 0.1, 0.5]]],
-					["a rest and a chord", [[\rest, 2, 0, 1], [[45, 48, 52], 2, 0.06, 0.9]]]
+					["a rest and a chord", [[\rest, 2, 0, 1], [[45, 48, 52], 2, 0.06, 0.9]]],
+					// WR-01 bounds (Phase 7 Plan 02): the edges themselves are allowed.
+					["64 rows of 1/16", Array.fill(64, { [60, 1/16, 0.1, 0.5] })],
+					["legato exactly 8", [[60, 4, 0.1, 8]]],
+					["notes -12 and 127", [[-12, 2, 0.1, 0.5], [127, 2, 0.1, 0.5]]],
+					["a chord of 8 notes", [[[40, 44, 47, 52, 56, 59, 64, 68], 4, 0.06, 0.9]]],
+					["a dur of exactly 1/32", [[60, 1/32, 0.1, 0.5], [60, 4 - (1/32), 0.1, 0.5]]]
 				];
 				good.do { |g|
 					r = ~ppRowsValid.(g[1]);
@@ -2531,11 +2664,23 @@ fork({
 					["a note \"x\"", [["x", 4, 0.1, 0.5]]],
 					["a row of 3 items", [[60, 4, 0.1]]],
 					["not an Array", 5],
-					["a nan dur", [[60, 0 / 0, 0.1, 0.5]]]
+					["a nan dur", [[60, 0 / 0, 0.1, 0.5]]],
+					// WR-01 bounds, each with the words its reason must contain.
+					["65 rows of 4/65", Array.fill(65, { [60, 4 / 65, 0.1, 0.5] }), "65 rows, more than 64"],
+					["400000 rows of 1e-5", Array.fill(400000, { [60, 1e-5, 0.1, 0.5] }), "more than 64"],
+					["a dur of 1/64", [[60, 1/64, 0.1, 0.5], [60, 4 - (1/64), 0.1, 0.5]], "shorter than 1/32"],
+					["legato 8.5", [[60, 4, 0.1, 8.5]], "more than 8"],
+					["note 128", [[128, 4, 0.1, 0.5]], "outside -12 to 127"],
+					["note -13", [[-13, 4, 0.1, 0.5]], "outside -12 to 127"],
+					["a chord of 9 notes", [[[40, 44, 47, 52, 56, 59, 64, 68, 71], 4, 0.06, 0.9]], "more than 8"],
+					["a chord containing 200", [[[60, 200], 4, 0.06, 0.9]], "outside -12 to 127"]
 				];
 				bad.do { |b|
 					r = ~ppRowsValid.(b[1]);
 					if (r.isKindOf(String).not) { fail.(name, "% should fail but passed".format(b[0])) };
+					if (b[2].notNil and: { r.find(b[2]).isNil }) {
+						fail.(name, "% should say \"%\" but said: %".format(b[0], b[2], r));
+					};
 				};
 				if (~ppRowsValid.([[60, 3.5, 0.1, 0.5]]).find("3.5").isNil) {
 					fail.(name, "the 3.5 beat reason does not say 3.5");
