@@ -34,7 +34,7 @@ Phase 6 brings in the shared chord progression that every pitched layer follows.
 
 - [x] **Phase 4: Modular Engine & Variation Library** - The engine is split into a core plus `supercollider/library/` modules with `classic` entries and still sounds exactly like v1.0. Adds safe loading, fallback, reload by name and a library check (completed 2026-10-12)
 - [x] **Phase 5: Library Selectors in the GUI** - Palette, Progression and Melody selectors list Auto plus every library file on disk and send the chosen name over send-only OSC (completed 2026-10-12)
-- [ ] **Phase 6: Shared Harmony & Progressions** - One chord progression drives bass, arp and pad together, with voice-led pads and at least 6 selectable progressions
+- [x] **Phase 6: Shared Harmony & Progressions** - One chord progression drives bass, arp and pad together, with voice-led pads and at least 6 selectable progressions (completed 2026-10-13)
 - [ ] **Phase 7: Sound Palettes** - At least 5 loudness-matched sound palettes that rotate on their own in Auto and lock when picked by name
 - [ ] **Phase 8: Evolving Melodies** - A rule-based lead whose motifs repeat, mutate and get replaced, a chord-following arp, at least 3 melody styles, and logged seeds
 - [ ] **Phase 9: Song Structure, EPIC Density & Ride Soak** - Fills, breakdown/build/drop sections and EPIC-driven layer density, proven on a real 60+ minute ride next to Zwift
@@ -114,7 +114,7 @@ Plans:
   4. Picking a named progression switches to it at the end of the current progression cycle, never mid-cycle, and it stays until another choice is made
   5. The standing exit gate holds: Stop silences every layer, re-evaluating stacks nothing, and the smoke suite plus the library check pass with every progression file
 
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -189,7 +189,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7 → 8 → 9
 | 3. EPIC Zones & Volume | v1.0 | 4/4 | Complete | 2026-10-09 |
 | 4. Modular Engine & Variation Library | v2.0 | 6/6 | Complete    | 2026-10-12 |
 | 5. Library Selectors in the GUI | v2.0 | 3/3 | Complete    | 2026-10-12 |
-| 6. Shared Harmony & Progressions | v2.0 | 5/5 | In Progress | - |
+| 6. Shared Harmony & Progressions | v2.0 | 5/5 | Complete    | 2026-10-13 |
 | 7. Sound Palettes | v2.0 | 0/TBD | Not started | - |
 | 8. Evolving Melodies | v2.0 | 0/TBD | Not started | - |
 | 9. Song Structure, EPIC Density & Ride Soak | v2.0 | 0/TBD | Not started | - |

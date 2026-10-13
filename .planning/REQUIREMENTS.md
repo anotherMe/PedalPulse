@@ -19,10 +19,10 @@ Requirements for this milestone. Each maps to roadmap phases. Research: `.planni
 
 ### Harmony (HARM)
 
-- [ ] **HARM-01**: Music follows a chord progression. Bass, arp, pad and lead always play over the same current chord, with no clashes at chord changes (GEN-01)
-- [ ] **HARM-02**: At least 6 named progressions plus `classic` ship in the library
-- [ ] **HARM-03**: Pad chords move smoothly between chords (voice-leading) instead of jumping
-- [ ] **HARM-04**: User can select a progression (Auto or a named one). Changes take effect at the end of the current progression cycle
+- [x] **HARM-01**: Music follows a chord progression. Bass, arp, pad and lead always play over the same current chord, with no clashes at chord changes (GEN-01)
+- [x] **HARM-02**: At least 6 named progressions plus `classic` ship in the library
+- [x] **HARM-03**: Pad chords move smoothly between chords (voice-leading) instead of jumping
+- [x] **HARM-04**: User can select a progression (Auto or a named one). Changes take effect at the end of the current progression cycle
 
 ### Melody (MEL)
 
@@ -100,10 +100,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIB-04 | Phase 4 | Complete |
 | LIB-05 | Phase 4 | Complete |
 | LIB-06 | Phase 4 | Complete |
-| HARM-01 | Phase 6 | Pending |
-| HARM-02 | Phase 6 | Pending |
-| HARM-03 | Phase 6 | Pending |
-| HARM-04 | Phase 6 | Pending |
+| HARM-01 | Phase 6 | Complete |
+| HARM-02 | Phase 6 | Complete |
+| HARM-03 | Phase 6 | Complete |
+| HARM-04 | Phase 6 | Complete |
 | MEL-01 | Phase 8 | Pending |
 | MEL-02 | Phase 8 | Pending |
 | MEL-03 | Phase 8 | Pending |
