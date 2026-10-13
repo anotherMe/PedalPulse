@@ -2674,7 +2674,6 @@ fork({
 						restoreT.(saved);
 					});
 					checkOk.(name);
-					checkOk.("auto palette with a locked progression");
 				}.value;
 
 				// 14c. named palette locks (PAL-03, D-11) and Auto after it draws a

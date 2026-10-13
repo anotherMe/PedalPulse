@@ -298,55 +298,86 @@
 	ok
 };
 
-// --- Auto prefetch (D-10, LIB-05) ---
-// Auto may choose any progression file on disk, including one added while the
-// engine runs. The layer that decides a cycle never waits for disk, so each Auto
-// pick starts ONE background scan of the progressions folder on SystemClock; a
-// file it registers is a candidate from the next pick. Every scanned name passes
-// ~ppStemValid before a path is built and loads only through ~ppLibEnsure
-// (containment, validation, one registry put). A file that failed to load is
-// remembered with its modification time (path -> mtime), so a broken file is
-// read and reported once per change of the file, not at every pick. The scan
-// never sets ~ppSel and never reloads a stem that is already registered (an
-// explicit pick does that). It is capped at 256 files and runs one at a time.
+// --- Auto prefetch (D-10, LIB-05; palettes since Phase 7, D-08) ---
+// Auto may choose any progression or palette file on disk, including one added
+// while the engine runs. The layer that decides a cycle or a palette never waits
+// for disk, so an Auto pick queues ONE background scan of the category's folder on
+// SystemClock; a file it registers is a candidate from the next pick. Every scanned
+// name passes ~ppStemValid before a path is built and loads only through
+// ~ppLibEnsure (containment, validation, the palette defs guard, one registry put).
+// A file that failed to load is remembered with its modification time (path ->
+// mtime), so a broken file is read and reported once per change of the file, not at
+// every pick. The scan never sets ~ppSel and never reloads a stem that is already
+// registered (an explicit pick does that), so a long ride adds no SynthDefs. Scans
+// are capped (~ppAutoCaps: 256 progression files, 32 palette files) and run one at
+// a time: ~ppAutoPrefetch.(cat) adds the category to a queue (a set, so a category
+// is queued once however often it is asked), and ONE Routine drains it, the
+// progressions before the palettes. ~ppAutoPrefetching stays true until the queue
+// is empty. ~ppAutoBusy.(cat) is true while cat is queued or being scanned: palette
+// Auto waits for it before its first pick.
 ~ppAutoFailed = ~ppAutoFailed ? Dictionary.new;
 ~ppAutoPrefetching = ~ppAutoPrefetching ? false;
-~ppAutoPrefetch = {
+~ppAutoPending = ~ppAutoPending ? IdentitySet.new;
+~ppAutoScanning = ~ppAutoScanning ? nil;
+~ppAutoCaps = (progressions: 256, palettes: 32);
+~ppAutoBusy = { |cat|
+	~ppAutoPending.includes(cat) or: { ~ppAutoScanning == cat }
+};
+// cat nil means \progressions, so every caller from before Phase 7 keeps working.
+~ppAutoPrefetch = { |cat|
 	var env;
-	if (~ppAutoPrefetching != true) {
-		~ppAutoPrefetching = true;
-		env = currentEnvironment;
-		Routine({
-			env.use {
-				try {
-					var paths;
-					paths = (~ppLibRoot +/+ "progressions" +/+ "*.scd").pathMatch;
-					paths.keep(256).do { |path|
-						var stem, mtime, ok;
-						stem = PathName(path).fileNameWithoutExtension;
-						if (~ppStemValid.(stem) and: { ~ppLib[\progressions][stem.asSymbol].isNil }) {
-							mtime = File.mtime(path);
-							if (~ppAutoFailed[path] != mtime) {
-								ok = try {
-									~ppLibEnsure.(\progressions, stem.asSymbol)
-								} { |err|
-									~ppLog.("PedalPulse ERROR: progression % failed to load: %".format(path, err.errorString));
-									false
+	cat = cat ? \progressions;
+	if (~ppAutoCaps[cat].notNil) {
+		~ppAutoPending.add(cat);
+		if (~ppAutoPrefetching != true) {
+			~ppAutoPrefetching = true;
+			env = currentEnvironment;
+			Routine({
+				env.use {
+					{
+						var next, word, folder, paths;
+						while { ~ppAutoPending.isEmpty.not } {
+							next = [\progressions, \palettes].detect { |c| ~ppAutoPending.includes(c) };
+							~ppAutoPending.remove(next);
+							~ppAutoScanning = next;
+							word = if (next == \palettes) { "palette" } { "progression" };
+							folder = next.asString;
+							try {
+								paths = (~ppLibRoot +/+ folder +/+ "*.scd").pathMatch;
+								paths.keep(~ppAutoCaps[next]).do { |path|
+									var stem, mtime, ok;
+									stem = PathName(path).fileNameWithoutExtension;
+									if (~ppStemValid.(stem) and: { ~ppLib[next][stem.asSymbol].isNil }) {
+										mtime = File.mtime(path);
+										if (~ppAutoFailed[path] != mtime) {
+											ok = try {
+												~ppLibEnsure.(next, stem.asSymbol)
+											} { |err|
+												~ppLog.("PedalPulse ERROR: % % failed to load: %".format(word, path, err.errorString));
+												false
+											};
+											if (ok == true) {
+												~ppAutoFailed.removeAt(path);
+											} {
+												~ppAutoFailed[path] = mtime;
+											};
+										};
+									};
 								};
-								if (ok == true) {
-									~ppAutoFailed.removeAt(path);
-								} {
-									~ppAutoFailed[path] = mtime;
-								};
+							} { |err|
+								~ppLog.("PedalPulse ERROR: % scan failed: %".format(word, err.errorString));
 							};
+							~ppAutoScanning = nil;
 						};
-					};
-				} { |err|
-					~ppLog.("PedalPulse ERROR: progression scan failed: %".format(err.errorString));
+					}.protect({
+						// Whatever happens, never leave the flags set: a stuck flag would stop
+						// every later scan and keep palette Auto from its first pick.
+						~ppAutoScanning = nil;
+						~ppAutoPrefetching = false;
+					});
 				};
-				~ppAutoPrefetching = false;
-			};
-		}).play(SystemClock);
+			}).play(SystemClock);
+		};
 	};
 };
 
@@ -364,6 +395,10 @@
 // music switches on the next bar line. Progressions are read at the next cycle
 // decision (core/harmony.scd), so a progression pick switches at the end of the
 // current progression cycle, never mid-cycle. Nothing is ever sent back.
+// `auto`: for progressions it rotates them at cycle ends and queues a folder scan
+// (core/harmony.scd, Phase 6); for palettes (Phase 7) it rotates them on progression
+// changes, starting with a random one, and queues a palette folder scan; for
+// melodies it still resolves to classic.
 ~ppSelect = { |cat, raw, address|
 	var str, token, env;
 	if (raw.isKindOf(Symbol).not and: { raw.isKindOf(String).not }) {
@@ -375,11 +410,16 @@
 			~ppSelReq[cat] = ~ppSelReq[cat] + 1;
 			~ppSel[cat] = \auto;
 			if (cat == \progressions) {
-					~ppLog.("PedalPulse: % auto -> auto (rotates progressions at cycle ends; a Start begins on classic)".format(address));
-					~ppAutoPrefetch.value;
+				~ppLog.("PedalPulse: % auto -> auto (rotates progressions at cycle ends; a Start begins on classic)".format(address));
+				~ppAutoPrefetch.value;
+			} {
+				if (cat == \palettes) {
+					~ppLog.("PedalPulse: % auto -> auto (rotates palettes on progression changes; the first pick is random)".format(address));
+					~ppAutoPrefetch.(\palettes);
 				} {
 					~ppLog.("PedalPulse: % auto -> auto (resolves to classic)".format(address));
 				};
+			};
 		} {
 			if (~ppStemValid.(str).not) {
 				// No path is ever built from an invalid name.
