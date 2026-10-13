@@ -5,8 +5,15 @@
 #   scripts/check.sh                 library guard (+ its self-test), then
 #                                    supercollider/library_test.scd, then
 #                                    scripts/smoke_test.sh
-#   scripts/check.sh --library-only  library guard and library_test.scd only
-#                                    (the fast loop while adding a variation)
+#   scripts/check.sh --library-only  library guard, library_test.scd and the palette
+#                                    meter only (the fast loop while adding a
+#                                    variation)
+#
+# The palette meter (scripts/palette_level.sh, supercollider/palette_meter.scd)
+# runs over every palette on disk: its loudness must stay within 1.5 dB of classic,
+# its headroom at VO2 and its CPU must hold, and its pitched voices must stay
+# finite at the extreme notes. To tune ONE new palette before its first commit
+# (a committed palette file is final) run: scripts/palette_level.sh <name>
 #
 # Override the sclang binary with: SCLANG=/path/to/sclang scripts/check.sh
 #
@@ -240,6 +247,16 @@ if [ "$want" -eq 0 ] || [ "$got" -ne "$want" ]; then
 	exit 1
 fi
 echo "CHECK OK: library file count ($want files)"
+
+# Palette meter: every palette on disk, measured against classic on the real
+# engine (own isolated server, port 57142). Gates loudness, headroom at VO2, CPU,
+# node count and the extreme notes of the pitched voices.
+if bash scripts/palette_level.sh; then
+	echo "CHECK OK: palette levels"
+else
+	echo "CHECK FAILED: palette levels (log: ${TMPDIR:-/tmp}/pedalpulse-palette.log)" >&2
+	exit 1
+fi
 
 if [ "$LIBRARY_ONLY" -eq 1 ]; then
 	echo "CHECK PASS (library only)"

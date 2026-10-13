@@ -6,11 +6,18 @@
 //
 // Design: a memoized per-bar entry that the layers PULL. There is no mutable
 // "current chord" variable that a layer could read before or after another layer
-// moved it. Every pitched layer (bass, arp, pad, lead) asks ~ppHarmonyFor for the
-// entry of its own (run, song bar); the first layer to ask builds it and the rest
-// read the same stored Event, so all four layers of a bar see one chord by
-// construction. This also resolves the STATE.md same-beat spike (layers whose
-// bar-start events land on the same beat in any order).
+// moved it. Every layer (bass, arp, pad, lead and, since Phase 7, the three drum
+// layers) asks ~ppHarmonyFor for the entry of its own (run, song bar); the first
+// layer to ask builds it and the rest read the same stored Event, so all layers
+// of a bar see one chord and one palette by construction. This also resolves the
+// STATE.md same-beat spike (layers whose bar-start events land on the same beat
+// in any order).
+//
+// The entry also says which sound palette the bar uses (entry[\palette], Phase 7).
+// It is decided once per (run, song bar), here, so a palette change lands on one
+// bar line for all seven layers: the kick can never be on the old palette while
+// the bass is already on the new one. ~ppHarmPaletteFor is the single place that
+// decides it.
 //
 // A "run" is the stretch between two (re)starts of the groove. It is keyed by the
 // calling thread's clock and by (bar - songBar), so a fresh recording clock, a
@@ -308,9 +315,27 @@
 	cyc
 };
 
+// --- Palette stage (Phase 7, PAL-03, D-09, D-10, D-11) ---
+// b, cyc, cycleBar, progChanged -> the palette stem the song bar b plays. The
+// selected palette when it is a loaded Symbol other than \auto; anything else
+// (nil, not loaded, and for now \auto) is classic. Plan 04 replaces only the \auto
+// branch. It reads ~ppSel and ~ppLib defensively and has no side effects, so it
+// is safe to call from anywhere the memo is built.
+~ppHarmPaletteFor = { |b, cyc, cycleBar, progChanged|
+	var sel = if (~ppSel.notNil) { ~ppSel[\palettes] } { nil };
+	if (sel.isKindOf(Symbol)
+		and: { sel != \auto }
+		and: { ~ppLib.notNil and: { ~ppLib[\palettes].notNil and: { ~ppLib[\palettes][sel].notNil } } }) {
+		sel
+	} {
+		\classic
+	}
+};
+
 // --- The memo ---
 // ~ppHarm is the running schedule: (sig:, entries:, last:, cycle:, pending:,
-// voicing:, cycleLog:, lastStem:, auto:). Only this module and ~ppHarmReset write it.
+// voicing:, cycleLog:, lastStem:, auto:, lastPalette:, palLog:). Only this module and
+// ~ppHarmReset write it.
 // A restart (main.scd's ~ppStart and teardown) calls ~ppHarmReset so a Start
 // always begins a new run at the selected progression's first chord.
 ~ppHarmReset = { ~ppHarm = nil };
@@ -328,7 +353,7 @@
 // or a gap of more than ~ppHarmKeepBars, starts the schedule at songBar itself and
 // never backfills from 0. Keeps at most ~ppHarmKeepBars song bars.
 ~ppHarmonyFor = { |bar, songBar|
-	var clock, base, h, n, from, cyc, cycleBar, nextFirst, entry, stem;
+	var clock, base, h, n, from, cyc, cycleBar, nextFirst, entry, stem, progChanged, palStem, palMod;
 	clock = thisThread.clock;
 	base = bar - songBar;
 	h = ~ppHarm;
@@ -336,7 +361,8 @@
 		h = (
 			sig: [clock, base], entries: Dictionary.new, last: nil, cycle: nil,
 			pending: nil, voicing: nil, cycleLog: List.new, lastStem: nil,
-			auto: (current: nil, holdLeft: 0, history: List.new)
+			auto: (current: nil, holdLeft: 0, history: List.new),
+			lastPalette: nil, palLog: List.new
 		);
 		~ppHarm = h;
 	};
@@ -368,6 +394,9 @@
 				};
 				cyc = h[\cycle];
 				cycleBar = b - cyc[\start];
+				// A cycle start whose progression differs from the last one: a "new
+				// chapter" (read before lastStem moves, for the palette stage below).
+				progChanged = (cycleBar == 0) and: { cyc[\stem] != h[\lastStem] };
 				if (cycleBar == 0) {
 					h[\cycleLog].add((start: b, stem: cyc[\stem], len: cyc[\len]));
 					while { h[\cycleLog].size > ~ppHarmLogCap } { h[\cycleLog].removeAt(0) };
@@ -384,6 +413,23 @@
 					nextFirst = h[\pending][\spans][0][\chord];
 				};
 				entry = ~ppHarmEntry.(cyc, cycleBar, h[\voicing], nextFirst);
+				// The bar's palette, decided once here for every layer (D-10).
+				palStem = try {
+					~ppHarmPaletteFor.(b, cyc, cycleBar, progChanged)
+				} { |err|
+					~ppLog.("PedalPulse ERROR: palette for bar % failed: % -- playing classic".format(b, err.errorString));
+					\classic
+				};
+				entry[\palette] = palStem;
+				if (palStem != h[\lastPalette]) {
+					palMod = if (~ppLib.notNil and: { ~ppLib[\palettes].notNil }) { ~ppLib[\palettes][palStem] } { nil };
+					~ppLog.("PedalPulse: palette %: %".format(palStem, if (palMod.notNil) { palMod[\desc] ? "" } { "" }));
+					h[\lastPalette] = palStem;
+					h[\palLog].add((bar: b, stem: palStem));
+					while { h[\palLog].size > ~ppHarmLogCap } { h[\palLog].removeAt(0) };
+				};
+				// The palette sounding now (Plan 04's Auto and the meter read it).
+				~ppPalPlaying = palStem;
 				h[\entries][b] = entry;
 				h[\voicing] = entry[\voicing];
 				h[\last] = b;
@@ -403,6 +449,13 @@
 // there is no run. For the tests.
 ~ppHarmCycleLog = {
 	if (~ppHarm.isNil) { [] } { ~ppHarm[\cycleLog].asArray }
+};
+
+// The palette log of the current run as an Array of (bar:, stem:), one entry per
+// change (the first built bar of the run included); [] when there is no run. Bars
+// are song bars. For the tests.
+~ppHarmPaletteLog = {
+	if (~ppHarm.isNil) { [] } { ~ppHarm[\palLog].asArray }
 };
 
 // --- Chord following for the melodic layers (D-01, D-02, D-03) ---

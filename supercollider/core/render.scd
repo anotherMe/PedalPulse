@@ -13,6 +13,9 @@
 // Phase 6 adds the optional harmony keys of a pitched role's plan: progression,
 // chord, nextChord, changesNext, chordBar, chordBars, cycleBar, cycleLen, voicing
 // and scale (core/harmony.scd explains each). Drum plans never carry them.
+// Phase 7: every layer, the drums too, reads its voice from the bar's palette,
+// entry[\palette] in the same memoized entry, so all seven layers change sound on
+// the same bar line.
 // Events are always accessed with [\key], never dot syntax.
 
 // layer name -> role. A role is what a generator or a palette is asked for.
@@ -57,10 +60,12 @@
 	~ppLib[cat][~ppResolveStem.(cat)]
 };
 
-// The voice for a role: the resolved palette's, falling back to classic's.
-~ppInstrumentFor = { |role|
+// The voice for a role: the palette's, falling back to classic's. stem is the
+// bar's palette from the harmony entry (entry[\palette]); without one (a caller
+// that has no entry) the current selection is resolved here, as before Phase 7.
+~ppInstrumentFor = { |role, stem|
 	var pal, fallback, inst;
-	pal = ~ppModuleFor.(\palettes);
+	pal = if (stem.notNil) { ~ppLib[\palettes][stem] } { ~ppModuleFor.(\palettes) };
 	if (pal.notNil and: { pal[\roles].notNil and: { pal[\roles][role].notNil } }) {
 		inst = pal[\roles][role][\instrument];
 	};
@@ -151,9 +156,11 @@
 // that simply has no generator for the role uses classic's silently (that is
 // not a failure).
 //
-// Harmony (Phase 6): a pitched role pulls the memoized harmony entry for its own
-// (bar, songBar) from core/harmony.scd; drums never do. Bass and pad read the
-// cycle's captured progression module (a pick never switches them mid-cycle), and
+// Harmony (Phase 6) and palette (Phase 7): every role pulls the memoized harmony
+// entry for its own (bar, songBar) from core/harmony.scd, the drums too: they read
+// only the bar's palette from it (drum plans never carry harmony keys). Bass and
+// pad read the cycle's captured progression module (a pick never switches them
+// mid-cycle), and
 // a module with chord data and no generator for the role is played by the core's
 // default bass or pad. Arp and lead rows are mapped onto the entry's chord (D-01,
 // D-02) unless the entry is classic's (left untouched, byte for byte) or the
@@ -163,8 +170,21 @@
 // entry is optional: the layers call the 4-argument form and the renderer pulls
 // it; a caller may pass one.
 ~ppRenderBar = { |role, songBar, bar, layerState, entry|
-	var cat, mod, key, gen, res, inst, plan, out, drum, failure, classicMod, fb, fromOwn;
-	inst = ~ppInstrumentFor.(role);
+	var cat, mod, key, gen, res, inst, plan, out, drum, failure, classicMod, fb, fromOwn, palStem;
+	// The entry first, for every role: it carries the bar's palette. A caller that
+	// passes none (the layers) gets the memoized one; entries without a palette
+	// (the strict chord check's explicit ones, ~ppHarmClassicEntry) fall back to
+	// the current selection.
+	if (entry.isNil) {
+		entry = try {
+			~ppHarmonyFor.(bar, songBar)
+		} { |err|
+			~ppLog.("PedalPulse ERROR: harmony for bar % failed: % -- classic harmony".format(bar, err.errorString));
+			~ppHarmClassicEntry.()
+		};
+	};
+	palStem = entry[\palette] ? ~ppResolveStem.(\palettes);
+	inst = ~ppInstrumentFor.(role, palStem);
 	drum = ~ppDrumGrid[role];
 	if (drum.notNil) {
 		out = drum[\rows].collect { |r| [inst, r[1], r[2], r[3]] };
@@ -172,14 +192,6 @@
 		out
 	} {
 		cat = ~ppRoleCategory[role];
-		if (entry.isNil) {
-			entry = try {
-				~ppHarmonyFor.(bar, songBar)
-			} { |err|
-				~ppLog.("PedalPulse ERROR: harmony for bar % failed: % -- classic harmony".format(bar, err.errorString));
-				~ppHarmClassicEntry.()
-			};
-		};
 		classicMod = ~ppLib[cat][\classic];
 		mod = if ((role == \bass) or: { role == \pad }) {
 			entry[\mod] ? classicMod

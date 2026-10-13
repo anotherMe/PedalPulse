@@ -1135,6 +1135,52 @@ fork({
 			checkOk.("shipped progressions");
 		}.value;
 
+		// ---- Shipped palettes (PAL-01, D-03, D-04): the real files on disk ----
+		// What every shipped palette must be, pinned by name: its own bass, arp,
+		// pad and lead voices (four different ones, the lead its own sound and not
+		// the arp's), exactly the drum voices it lists and none other (a drum role
+		// left out falls back to classic's), and its bass style. Wrong voice names
+		// are caught here, before the file is frozen by its commit. Plans 03 and 05
+		// add rows. Row: [stem, bassStyle or nil, the palette's own drum roles].
+		{
+			var req, table, descs, mod, classicMod;
+
+			req = { |ok, what| if (ok.not) { fail.("shipped palettes", what) } };
+			descs = List.new;
+			table = [
+				[\supersaw, nil, []]
+			];
+			classicMod = ~ppLibLoad.(\palettes, \classic);
+			req.(classicMod.notNil, "could not load palettes/classic");
+			descs.add(classicMod[\desc]);
+			table.do { |row|
+				var stem = row[0], prefix = "pp_%_".format(stem), insts;
+				mod = ~ppLibLoad.(\palettes, stem);
+				req.(mod.notNil, "could not load palettes/%".format(stem));
+				insts = ~ppPitchedRoles.collect { |role|
+					var entry = mod[\roles][role];
+					req.(entry.notNil, "% has no % voice".format(stem, role));
+					req.(entry[\instrument].asString.beginsWith(prefix), "% % voice % does not start with %".format(stem, role, entry[\instrument], prefix));
+					entry[\instrument]
+				};
+				req.(insts.as(Set).size == insts.size, "% bass, arp, pad and lead voices are not four different ones: %".format(stem, insts));
+				~ppDrumRoles.do { |role|
+					var entry = mod[\roles][role];
+					if (row[2].includes(role)) {
+						req.(entry.notNil, "% should have its own % voice".format(stem, role));
+						req.(entry[\instrument].asString.beginsWith(prefix), "% % voice % does not start with %".format(stem, role, entry[\instrument], prefix));
+					} {
+						req.(entry.isNil, "% names a % voice but the table says it plays classic's".format(stem, role));
+					};
+				};
+				req.(mod[\bassStyle] == row[1], "% bassStyle is % instead of %".format(stem, mod[\bassStyle], row[1]));
+				descs.add(mod[\desc]);
+			};
+			req.(descs.size == (table.size + 1), "expected % descriptions, found %".format(table.size + 1, descs.size));
+			req.(descs.asArray.as(Set).size == descs.size, "the % descriptions are not all different: %".format(descs.size, descs));
+			checkOk.("shipped palettes");
+		}.value;
+
 		// main.scd must start from the D-07 defaults, which parity depends on.
 		~ppSel = nil;
 		~ppLib = nil;
@@ -2336,6 +2382,125 @@ fork({
 				};
 				rc = recordBars.(4, 32);
 				expectClassicBars.(name, rc[\rows], 4);
+				checkOk.(name);
+			}.value;
+
+			// 5b. named palette plays from the next bar (PAL-03 next-bar half, D-03,
+			// D-09, D-10, D-11): a fixture palette that replaces ALL seven voices is
+			// picked by name and dropped again while the music runs. Every layer,
+			// the three drum layers included, switches on the same bar line (never
+			// mid-bar, never one layer a bar late), the music never stops, and the
+			// post window names each change once.
+			{
+				var name = "named palette plays from the next bar";
+				var roles, drums, voice, defsText, rolesText, classicInst, probeInst, wantInst;
+				var rc, logBefore, s1, s2, plog, fresh, probeLine, probeAt, classicAfter, classicDesc, rowsOf, layerNames;
+				roles = [\kick, \hat, \clap, \bass, \arp, \pad, \lead];
+				drums = [\kick, \hat, \clap];
+				voice = { |role|
+					if (drums.includes(role)) {
+						"SynthDef(\\pp_probe_pal_%, { |out = 0, amp = 0.1| var env = EnvGen.kr(Env.perc(0.001, 0.1), doneAction: 2); Out.ar(out, (SinOsc.ar(200) * env * amp) ! 2) }).add;".format(role)
+					} {
+						"SynthDef(\\pp_probe_pal_%, { |out = 0, amp = 0.1, freq = 220, gate = 1| var env = EnvGen.kr(Env.adsr(0.005, 0.05, 0.5, 0.1), gate, doneAction: 2); Out.ar(out, (Saw.ar(freq) * env * amp) ! 2) }).add;".format(role)
+					}
+				};
+				defsText = roles.collect { |r| voice.(r) }.join("\n");
+				rolesText = roles.collect { |r| "%: (instrument: \\pp_probe_pal_%)".format(r, r) }.join(", ");
+				wr.("palettes/probe_pal.scd", "(\ndesc: \"probe palette\",\ndefs: {\n%\n},\nroles: (%)\n)\n".format(defsText, rolesText));
+				// What each role plays under classic, and under the fixture.
+				classicInst = (kick: \ppKick, hat: \ppHat, clap: \ppClap, bass: \ppBass, arp: \ppArp, pad: \ppPad, lead: \ppArp);
+				probeInst = { |role| ("pp_probe_pal_" ++ role).asSymbol };
+				layerNames = [\ppKick, \ppHat, \ppClap, \ppBass, \ppArp, \ppPad, \ppLead];
+
+				sendSel.('/pp/melody', 'classic_lead');
+				if (waitFor.({ ~ppSel[\melodies] == \classic_lead }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never became classic_lead");
+				};
+				logBefore = ~ppLogCount;
+				rc = recordBars.(16, 16, { |recClock, startBeat|
+					while { recClock.beats < (startBeat + 18) } { 0.02.wait };  // bar 4.5
+					sendSel.('/pp/palette', 'probe_pal');
+					if (waitFor.({ ~ppSel[\palettes] == \probe_pal }, 3).not) {
+						fail.(name, "~ppSel[\\palettes] never became probe_pal: %".format(newLogs.(logBefore)));
+					};
+					while { recClock.beats < (startBeat + 42) } { 0.02.wait };  // bar 10.5
+					sendSel.('/pp/palette', 'classic');
+					if (waitFor.({ ~ppSel[\palettes] == \classic }, 3).not) {
+						fail.(name, "~ppSel[\\palettes] never returned to classic");
+					};
+				});
+
+				// S1: the first bar with any fixture voice. S2: the first later bar
+				// that is back on classic voices.
+				s1 = nil;
+				rc[\rows].do { |r|
+					if (r[2].asString.beginsWith("pp_probe_pal_")) {
+						s1 = if (s1.isNil) { barOf.(r[1]) } { min(s1, barOf.(r[1])) };
+					};
+				};
+				if (s1.isNil) { fail.(name, "no row ever used a pp_probe_pal_ voice: %".format(newLogs.(logBefore))) };
+				if ((s1 < 5) or: { s1 > 7 }) { fail.(name, "the fixture palette took over in bar %, expected bar 5 to 7 (sent in bar 4.5)".format(s1)) };
+				s2 = nil;
+				rc[\rows].do { |r|
+					var b = barOf.(r[1]);
+					if ((b > s1) and: { r[2].asString.beginsWith("pp_probe_pal_").not }) {
+						s2 = if (s2.isNil) { b } { min(s2, b) };
+					};
+				};
+				if (s2.isNil) { fail.(name, "the music never went back to classic voices after bar %".format(s1)) };
+				if ((s2 < 11) or: { s2 > 13 }) { fail.(name, "classic took over again in bar %, expected bar 11 to 13 (sent in bar 10.5)".format(s2)) };
+
+				// Every row of every layer: classic voice before S1 and from S2, the
+				// fixture's voice for ITS role in between. One bar, one palette.
+				rc[\rows].do { |r|
+					var b = barOf.(r[1]), role = ~ppLayerRole[r[0]];
+					wantInst = if ((b >= s1) and: { b < s2 }) { probeInst.(role) } { classicInst[role] };
+					if (r[2] != wantInst) {
+						fail.(name, "% bar % plays % instead of % (the palette changed in bar % and back in bar %)".format(r[0], b, r[2], wantInst, s1, s2));
+					};
+				};
+				// Each of the seven layers is actually heard in all three stretches
+				// (otherwise "every row matches" would prove nothing for it).
+				rowsOf = { |layer, from, to| rc[\rows].count { |r| (r[0] == layer) and: { (barOf.(r[1]) >= from) and: { barOf.(r[1]) < to } } } };
+				layerNames.do { |layer|
+					[[0, s1], [s1, s2], [s2, 16]].do { |span|
+						if (rowsOf.(layer, span[0], span[1]) == 0) {
+							fail.(name, "% plays nothing in bars % to %".format(layer, span[0], span[1] - 1));
+						};
+					};
+				};
+				expectClassicBars.(name, rc[\rows], 16);
+
+				// The bar's palette is decided once per bar in the harmony memo.
+				plog = ~ppHarmPaletteLog.();
+				if (plog.isNil) { fail.(name, "~ppHarmPaletteLog does not exist") };
+				if (plog.collect { |e| e[\stem] } != [\classic, \probe_pal, \classic]) {
+					fail.(name, "the palette log is %, expected classic, probe_pal, classic".format(plog));
+				};
+				if (plog.collect { |e| e[\bar] } != [0, s1, s2]) {
+					fail.(name, "the palette log bars are %, expected [0, %, %]".format(plog.collect { |e| e[\bar] }, s1, s2));
+				};
+
+				// The post window names every change, once (D-09).
+				fresh = newLogs.(logBefore);
+				probeLine = "PedalPulse: palette probe_pal: probe palette";
+				if (fresh.count { |l| l == probeLine } != 1) {
+					fail.(name, "expected exactly one line '%' in %".format(probeLine, fresh));
+				};
+				probeAt = fresh.detectIndex { |l| l == probeLine };
+				classicDesc = ~ppLib[\palettes][\classic][\desc];
+				classicAfter = fresh.copyToEnd(probeAt + 1).select { |l| l.beginsWith("PedalPulse: palette classic: ") };
+				if (classicAfter != ["PedalPulse: palette classic: " ++ classicDesc]) {
+					fail.(name, "after the fixture line expected exactly one classic line with its desc, got %".format(classicAfter));
+				};
+
+				sendSel.('/pp/melody', 'classic');
+				if (waitFor.({ ~ppSel[\melodies] == \classic }, 3).not) {
+					fail.(name, "~ppSel[\\melodies] never returned to classic");
+				};
+				if (~ppSel[\palettes] != \classic) {
+					fail.(name, "~ppSel[\\palettes] is % at the end, expected classic".format(~ppSel[\palettes]));
+				};
 				checkOk.(name);
 			}.value;
 
