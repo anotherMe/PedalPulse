@@ -1,7 +1,7 @@
 ---
 phase: 06-shared-harmony-progressions
-verified: 2026-10-12T22:30:00Z
-status: human_needed
+verified: 2026-10-13T09:30:00Z
+status: passed
 score: 5/5 must-haves verified
 covered_files:
   - ".planning/phases/06-shared-harmony-progressions/06-01-PLAN.md"
@@ -32,47 +32,25 @@ covered_files:
   - "supercollider/library_test.scd"
   - "supercollider/main.scd"
   - "supercollider/smoke_test.scd"
-covered_digest: "v3:sha256:2f097590e27f761f0cefd89b773e3889ec658d7fea1210658ba60ae907b65b16"
+covered_digest: "v3:sha256:feed8cd9361e5faaff9e35bc383ebd3deeb49e10c78c68f8c5ee1314a9075e62"
 behavior_unverified: 0
 overrides_applied: 0
-human_verification:
-  - test: "Distinctness: pick each of anthem, rocker, lift, return, deep, melancholy, drama in turn (melody classic_lead_loud) and listen to at least two rounds each; write one plain sentence per progression and say if two sound too alike"
-    expected: "Each progression is recognisably different from the others and from classic (ROADMAP SC3 'each one sounds distinct')"
-    why_human: "'Sounds distinct' is a listening judgement. Automation only proves the chord tables differ (shipped progressions table check)."
-  - test: "Clean changes: listen at every chord change on each progression, and on drama's E major (G sharp) chord"
-    expected: "Bass, pad, arp and lead change chord together, with no sour or clashing note at the changes"
-    why_human: "The static and recorded checks prove every note is a tone of its bar's chord. Whether the pad's 1.2 s release tail under the next chord (gate closes 1 beat early) sounds like a smeared wash is a by-ear call."
-  - test: "Pad smoothness: pick deep, then anthem, and listen to the pad"
-    expected: "The pad moves smoothly to a nearby voicing instead of jumping, and the old chord is already fading as the new one enters"
-    why_human: "Voicing distance is proven numerically (nearest voicing, window 40-64); how it sounds is not."
-  - test: "Cycle-end switching: while anthem plays, pick drama at a random moment"
-    expected: "The change lands when anthem is back at Am, never in the middle of its four chords, and drama then stays"
-    why_human: "The cycle-end rule is proven by the cycle log; hearing it at a real ride tempo is the rider's confirmation."
-  - test: "Tempo glide and Stop/Start by ear: on drama press Up/Down so the tempo glides, then Stop and Start"
-    expected: "Chords keep changing together during the glide; after Start the music begins on drama's first chord"
-    why_human: "Recorded with a tempo change and covered by the smoke Stop/Start check, but the absence of audible clashes is by ear."
-  - test: "Auto over about 6 minutes (melody classic_lead_loud)"
-    expected: "Classic first, then a new 'PedalPulse: progression <name>' line every 2-3 minutes at the start of a round, never mid-round, never an immediate repeat. Note: the hold is 32-64 bars, so about 1-2 minutes at 128 BPM and 2-3 minutes at ~90 BPM (review IN-01)"
-    why_human: "Pace feel at ride tempo; the 2-3 minute claim in the roadmap/README depends on BPM."
-  - test: "Auto picked mid-ride: pick anthem, wait for its line, then pick Auto"
-    expected: "Anthem keeps playing for a full hold before Auto rotates (planner decision, not yet confirmed by the rider)"
-    why_human: "Planner decision made in yolo mode; the rider has to say whether adopt-then-hold feels right (06-05-SUMMARY, planner decision 3)."
-  - test: "Classic parity by ear: pick classic in Progression and Melody"
-    expected: "The original groove, unchanged"
-    why_human: "Automated parity (496 rows, 0 mismatches against the golden) already proves it; listed only because the plan's listening check includes it."
-  - test: "Planner decisions to confirm: ownHarmony opt-out, pad gate one beat early (~ppPadGapBeats = 1), Auto adopt-then-hold"
-    expected: "Rider accepts or asks for a change"
-    why_human: "Decisions recorded as unconfirmed in 06-05-SUMMARY; prohibition 06-05 (never mark the listening check done) is respected."
+re_verification:
+  previous_status: human_needed
+  previous_score: 5/5
+  gaps_closed:
+    - "All nine previous human_verification items (distinctness, clean changes, pad smoothness, cycle-end switching, glide + Stop/Start, Auto over ~6 min, Auto picked mid-ride, classic parity, planner decisions) passed in 06-UAT.md (10/10, 0 issues)"
+    - "Review findings WR-01..WR-04 fixed (bff3168, 1e6d677, 78210e0, ff08acc) and re-checked in code and by a full gate run"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 6: Shared Harmony & Progressions Verification Report
 
 **Phase Goal:** As a rider, I want the music to move through chord progressions that bass, arp and pad follow together, so that it stops sounding like the same few notes for an hour.
-**Verified:** 2026-10-12
-**Status:** human_needed
-**Re-verification:** No, initial verification
-
-All automated evidence passes and the code does what the phase claims. Status is `human_needed` only because the rider's by-ear listening check (distinct, clean, smooth, cycle-end, Auto pace) is recorded PENDING and cannot be verified by code. No truth FAILED.
+**Verified:** 2026-10-13
+**Status:** passed
+**Re-verification:** Yes. The earlier report (2026-10-12, `human_needed`) went stale when the code-review fixes WR-01..WR-04 changed covered source files. It is regenerated here against current HEAD (`963d163`); there are no uncommitted changes in `supercollider/`, `scripts/` or `python_app/`.
 
 ## Goal Achievement
 
@@ -80,33 +58,35 @@ All automated evidence passes and the code does what the phase claims. Status is
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Bass, arp, pad (and lead) change chord together, no clashes, incl. BPM glides and after Stop/Start | VERIFIED (by-ear part pending) | `harmony.scd:324-389` `~ppHarmonyFor` is a memoized per-(run, songBar) entry; every pitched layer pulls it in `render.scd:175-178`, so all layers see one chord by construction. Arp/lead mapped onto the chord by `~ppFollowRows` (`render.scd:237-246`); bass/pad from core defaults (`harmony.scd:501-537`). My run of `bash scripts/check.sh`: `CHECK OK: chord follow` for all 7 chord-data progressions (recorded run with tempo change, strict in-chord rule), `CHECK OK: harmony units`, `CHECK OK: progression stop and start`, `CHECK PASS`. |
-| 2 | Pad chords move to the nearest voicing of the next chord | VERIFIED (sound pending) | `~ppNearestVoicing` (`harmony.scd:131-158`): minimum summed movement over all close inversions/octaves inside MIDI 40-64, tie-break to home mean then lower. Hand-checked anthem: Am 45 48 52, F 45 48 53, C 43 48 52, G 43 47 50 (matches plan). `harmony units` check passes. |
-| 3 | Progression selector lists at least 6 named progressions plus classic; each distinct; Auto chooses on its own | VERIFIED (distinctness by ear pending) | Library has `classic` + 7 named (anthem, deep, drama, lift, melancholy, return, rocker) with different chord tables and descs; `CHECK OK: shipped progressions`. Python dropdown scans the folder (`python_app/library_logic.py:24 scan_library`), python_app unchanged since 3066535 and 191 pytest pass (I re-ran). Auto: `~ppHarmAutoNext` (`harmony.scd:223-266`) classic first, seeded no-quick-repeat picks at cycle ends; `CHECK OK: auto rotates progressions / adds a new progression file / skips a failing progression / reports a broken file once / stays bounded`. |
-| 4 | Named pick switches at end of the current cycle, never mid-cycle, and stays | VERIFIED | `~ppHarmDecide` reads `~ppSel` and captures the module only at cycle boundaries; the next cycle is decided on the previous cycle's last bar (`harmony.scd:373-379`), so a late pick waits one more cycle. A named pick is not overwritten (`harmony.scd:288-293`). Post-window wording says "switches at the end of the current progression cycle" (`loader.scd:272`). Covered by units/auto tiers (all `CHECK OK`). |
-| 5 | Exit gate: Stop silences every layer, re-evaluation stacks nothing, smoke + library check pass with every progression file | VERIFIED | My own run: `CHECK OK: eng-05 no stacking`, `eng-05 module re-evaluation`, `stop silences every layer`, `progression stop and start`, `progression re-evaluation`, `LIBRARY PASS` (all 15 files LIBCHECK OK incl. all 8 progressions), `SMOKE PASS`, `CHECK PASS`, exit 0. |
+| 1 | Bass, arp, pad (and lead) change chord together, no clashes, including BPM glides and after Stop/Start | VERIFIED | `render.scd:177` pulls one memoized `~ppHarmonyFor.(bar, songBar)` entry for every pitched layer, and `render.scd:240` maps arp/lead onto the chord with `~ppFollowRows`. My own run of `bash scripts/check.sh` on HEAD: `CHECK OK: chord follow` for anthem, deep, drama, lift, melancholy, return and rocker (recorded run with a tempo change, strict in-chord rule), `CHECK OK: harmony units`, `CHECK OK: progression stop and start`. By ear: UAT tests 2 and 5 pass. |
+| 2 | Pad chords move to the nearest voicing of the next chord | VERIFIED | `~ppNearestVoicing` in `harmony.scd` (min summed movement, window MIDI 40-64); `CHECK OK: harmony units` passes. By ear: UAT test 3 pass. |
+| 3 | Selector lists at least 6 named progressions plus `classic`; each distinct; Auto chooses on its own | VERIFIED | Library holds `classic` + 7 named (anthem, deep, drama, lift, melancholy, return, rocker) plus `_template`; `CHECK OK: shipped progressions`; Python dropdown uses the Phase 5 folder scan. Auto: `CHECK OK: auto rotates progressions`, `auto keeps the playing progression first`, `auto stays bounded`, `auto adds a new progression file`, `auto skips a failing progression`, `auto reports a broken file once`. By ear: UAT tests 1, 6, 7 pass. |
+| 4 | A named pick switches at the end of the current cycle, never mid-cycle, and stays | VERIFIED | Decided on the previous cycle's last bar in `harmony.scd`; covered by the units/auto tiers (all `CHECK OK`). By ear: UAT test 4 pass. |
+| 5 | Exit gate: Stop silences every layer, re-evaluation stacks nothing, smoke + library check pass with every progression file | VERIFIED | My run on HEAD: `CHECK OK: eng-05 no stacking`, `eng-05 module re-evaluation`, `stop silences every layer`, `progression stop and start`, `progression re-evaluation`, `LIBRARY PASS`, `SMOKE PASS`, `CHECK PASS`, exit 0. |
 
-**Score:** 5/5 truths verified programmatically (0 behavior-unverified; by-ear aspects routed to human verification)
+**Score:** 5/5 truths verified (0 behavior-unverified; every previous by-ear item is now confirmed by the rider in 06-UAT.md).
 
-### PLAN-level truths spot-checked
+### Plan-level truths and review fixes (re-checked after WR-01..WR-04)
 
-| Truth (plan) | Status | Evidence |
-|--------------|--------|----------|
-| Classic note-for-note unchanged (06-01) | VERIFIED | `parity rows=496 mismatches=0`, `CHECK OK: parity`; `git diff 3066535..HEAD` shows no change to classic.scd, melody/palette classics or the golden (only additions plus the `_template.scd` rewrite). |
-| Memo bounded, no mutable current-chord (06-01/06-04) | VERIFIED | `~ppHarmKeepBars = 64`, `~ppHarmLogCap = 256`, history cap 8; `auto stays bounded` passes. |
-| Malformed chord data refused (06-02) | VERIFIED | `harmony units` / negative controls in check output pass (`~ppChordDataReasons` in validate.scd). |
-| Auto seed posted, differs per launch (06-04) | VERIFIED | `PedalPulse: progression auto seed 835997` then `836136` in the two engines of my run. |
-| Listening check never marked done (06-05 prohibition) | VERIFIED | 06-05-SUMMARY records it PENDING; planner decisions listed as unconfirmed. |
+| Item | Status | Evidence |
+|------|--------|----------|
+| Classic note-for-note unchanged (06-01) | VERIFIED | `PedalPulse libtest: parity rows=496 mismatches=0`, `CHECK OK: parity`; UAT test 8 pass. |
+| WR-01 reserved stems `parent`/`proto` | VERIFIED | `loader.scd:55`: `["auto", "parent", "proto"].includesEqual(str).not` (uses `includesEqual`, the correct String comparison); rule documented at `loader.scd:36`. |
+| WR-02 Auto draw counter survives Stop/Start | VERIFIED | `harmony.scd:58` `~ppAutoPicks = ~ppAutoPicks ? 0`, used in the seed at `harmony.scd:235-236`, not part of per-run state. UAT test 10 (rider listened across Stop/Start) pass. |
+| WR-03 prefetch flag survives loader reload | VERIFIED | `loader.scd:183` `~ppAutoPrefetching = ~ppAutoPrefetching ? false`. `progression re-evaluation` and `eng-05 module re-evaluation` pass. |
+| WR-04 library guard measured against a stable base | VERIFIED | `scripts/check.sh:202-204` takes `LIBRARY_GUARD_BASE`, else merge-base with `origin/main`, else HEAD; `CHECK OK: library guard self-test` (includes the new committed-edit, bad-base and no-commits cases) and `CHECK OK: library guard`. |
+| Memo bounded; Auto seed varies per launch | VERIFIED | `auto stays bounded`; seeds 874786 and 874925 in the two engines of this run. |
+| Malformed chord data refused (06-02) | VERIFIED | `harmony units` plus library-check negative controls pass. |
 
 ### Required Artifacts
 
 | Artifact | Status | Details |
 |----------|--------|---------|
-| `supercollider/core/harmony.scd` (539 lines) | VERIFIED | Substantive, loaded by `main.scd:38`, reset at `main.scd:90` and `283`. |
-| `supercollider/core/render.scd` | VERIFIED | `~ppHarmonyFor.(` pulled at line 177; `~ppFollowRows` at 240. |
-| `supercollider/core/validate.scd` / `loader.scd` | VERIFIED | `~ppChordDataReasons`, `~ppAutoPrefetch` present and exercised. |
-| 7 chord-data progression files + `_template.scd` | VERIFIED | Chord data match the plan tables (e.g. drama has `root: 7, quality: \maj`; deep `barsPerChord: 2`). |
-| `README.md`, melody `_template.scd`, smoke/library tests | VERIFIED | Present; smoke has the two new checks. |
+| `supercollider/core/harmony.scd` (545 lines) | VERIFIED | Substantive, reset from `main.scd:90` and `main.scd:283`. |
+| `supercollider/core/render.scd` | VERIFIED | `~ppHarmonyFor` (177) and `~ppFollowRows` (240) wired into rendering. |
+| `supercollider/core/loader.scd`, `validate.scd` | VERIFIED | Stem rule, prefetch scanner, `~ppChordDataReasons` exercised by the library check. |
+| 7 chord-data progression files + `_template.scd` | VERIFIED | All on disk and loaded by `LIBRARY PASS` (library file count OK). |
+| `supercollider/library/README.md`, `smoke_test.scd`, `library_test.scd`, `scripts/check.sh` | VERIFIED | Present, executed in this run. |
 
 ### Key Link Verification
 
@@ -114,22 +94,22 @@ All automated evidence passes and the code does what the phase claims. Status is
 |------|----|--------|
 | `render.scd ~ppRenderBar` | `~ppHarmonyFor` | WIRED (line 177) |
 | `main.scd ~ppStart` / teardown | `~ppHarmReset` | WIRED (lines 90, 283) |
-| `loader.scd ~ppLibLoad` | `~ppChordDataReasons` | WIRED (library check refuses malformed data) |
-| `harmony.scd ~ppHarmDecide` auto branch | `~ppAutoPrefetch` | WIRED (`harmony.scd:246,262`) |
-| Python dropdown | progressions folder | WIRED via existing Phase 5 `scan_library`, no Python change needed |
+| `loader.scd ~ppLibLoad` | `~ppChordDataReasons` | WIRED |
+| `harmony.scd ~ppHarmDecide` Auto branch | `~ppAutoPrefetch` | WIRED |
+| Python dropdown | progressions folder | WIRED via Phase 5 `scan_library`; Python app stays send-only |
 
 ### Data-Flow Trace (Level 4)
 
-Chord data flows from `library/progressions/*.scd` through `~ppHarmCycle` -> `~ppHarmEntry` -> memo -> layers' rendered rows; confirmed by the recorded chord-follow runs against real notes. FLOWING.
+Chord data flows from `library/progressions/*.scd` through the harmony cycle and memo into the rendered rows of every layer; the recorded chord-follow runs assert real notes against the chord. FLOWING.
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Full gate | `bash scripts/check.sh` | `LIBRARY PASS`, `SMOKE PASS`, `CHECK PASS`, exit 0 | PASS |
-| Python suite | `.venv/bin/python -m pytest -q` | 191 passed | PASS |
+| Full gate on HEAD | `bash scripts/check.sh` | `LIBRARY PASS`, `SMOKE PASS`, `CHECK PASS`, exit 0 | PASS |
+| Python suite | `.venv/bin/pytest -q` | 191 passed | PASS |
 
-Noted: the smoke log shows `FAILURE IN SERVER /n_set Node ... not found` lines around the Stop check; the check itself passed (these are the existing releases of already-freed nodes at Stop), not a verification failure.
+The smoke log shows `FAILURE IN SERVER /n_set Node ... not found` lines around Stop; these are releases of already-freed nodes and the checks around them pass.
 
 ### Probe Execution
 
@@ -139,44 +119,36 @@ SKIPPED: no `probe-*.sh` declared or present.
 
 | Requirement | Source Plans | Description | Status | Evidence |
 |-------------|--------------|-------------|--------|----------|
-| HARM-01 | 06-01, 06-02, 06-03, 06-05 | Layers play over the same chord, no clashes | SATISFIED (sound pending) | SC1 evidence |
-| HARM-02 | 06-03, 06-04, 06-05 | At least 6 named progressions plus classic | SATISFIED (distinctness pending) | 7 named + classic on disk, table check passes |
-| HARM-03 | 06-01, 06-02, 06-05 | Pad voice-leading | SATISFIED (sound pending) | SC2 evidence |
-| HARM-04 | 06-01, 06-04, 06-05 | Select Auto or named, takes effect at cycle end | SATISFIED | SC4 + auto tier |
+| HARM-01 | 06-01, 06-02, 06-03, 06-05 | Layers play over the same chord, no clashes | SATISFIED | SC1; chord-follow checks; UAT 2, 5 |
+| HARM-02 | 06-03, 06-04, 06-05 | At least 6 named progressions plus classic | SATISFIED | 7 named + classic, table check; UAT 1 |
+| HARM-03 | 06-01, 06-02, 06-05 | Pad voice-leading | SATISFIED | SC2; UAT 3 |
+| HARM-04 | 06-01, 06-04, 06-05 | Select Auto or named; effective at cycle end | SATISFIED | SC4 and Auto tier; UAT 4, 6, 7, 10 |
 
-All four IDs appear in PLAN frontmatter and in REQUIREMENTS.md; no orphaned requirement IDs for Phase 6. Bookkeeping note: REQUIREMENTS.md still shows HARM-01..04 as unchecked / "Pending" and ROADMAP lists Phase 6 as `[ ]`; update after the listening check is closed.
+All four IDs are declared in PLAN frontmatter and exist in REQUIREMENTS.md; no orphaned IDs for Phase 6. Bookkeeping: REQUIREMENTS.md still lists HARM-01..04 as `[ ]` / "Pending" and ROADMAP lists Phase 6 as `[ ]`. These should be ticked on phase completion (not a code gap).
 
 ### Prohibitions
 
 | Prohibition | Tier | Result |
 |-------------|------|--------|
-| Classic unchanged (06-01) | test | Enforcement wired: golden parity 0 mismatches. Held. |
-| No edit of committed library files/golden (06-01, 06-03) | test | Enforcement wired (`library_guard`, passes; self-test passes). `git diff` since 3066535 shows additions only. Held. Caveat WR-04 below. |
-| Do not weaken checks to make files pass (06-02) | judgment | NON-AUTHORITATIVE LLM verdict: held. The only allowance is classic's implicit `extraPcs: [5]` (`harmony.scd:81`); chord-data files are checked strictly. `unverified-prohibition: human review recommended` for a stricter audit. |
-| Listening check not performed/approved by executor (06-05) | judgment | Held (SUMMARY says PENDING). |
-| No engine-to-app message for Auto (06-04) | test | Held: python_app byte-identical to pre-phase commit; messages go only to the post window. |
+| Classic unchanged (06-01) | test | Held: golden parity 0 mismatches. |
+| No edit of committed library files/golden (06-01, 06-03) | test | Held: library guard and self-test pass. |
+| Do not weaken checks to make files pass (06-02) | judgment | NON-AUTHORITATIVE LLM verdict: held. `unverified-prohibition: human review recommended` for a stricter audit (low risk). |
+| Listening check not marked done by the executor (06-05) | judgment | Held: it was closed later by the rider in 06-UAT.md. |
+| No engine-to-app message for Auto (06-04) | test | Held: Python app unchanged and send-only. |
 
 ### Anti-Patterns Found
 
-No TBD/FIXME/XXX in phase files. Open code-review findings (0 critical, all non-blocking, none refute a truth):
-
-| Finding | Severity | Impact |
-|---------|----------|--------|
-| WR-01 stems `parent` / `proto` mishandled by the Event-based registry | Warning | A progression file named `parent.scd`/`proto.scd` is misbehaving but contained (classic fallback). Fix: reject reserved names. |
-| WR-02 every Start replays the identical Auto order within one sclang session | Warning | Variety between Stop/Start rides is lower than the README implies; across engine launches the seed differs (verified). |
-| WR-03 `~ppAutoPrefetching` reset on every load of loader.scd | Warning | Possible duplicate scanner after a mid-ride re-evaluation. Re-evaluation smoke check passes. |
-| WR-04 library guard compares only the working tree to HEAD | Warning | A committed edit to a frozen library file would pass the guard; the golden still protects classic. I confirmed no such edit exists in this phase. |
-| IN-01..IN-04 doc drift (2-3 minutes vs 32-64 bars), history cap not retunable, shared voicing array, gate timeout headroom | Info | Cosmetic or future-proofing. |
+None blocking. No TBD/FIXME/XXX in any phase-modified source file. Code-review warnings WR-01..WR-04 are fixed. The 4 Info findings (IN-01..IN-04: doc drift on the 2-3 minute hold vs 32-64 bars, history cap not retunable, shared voicing array, gate timeout headroom) are left open by design and are cosmetic or future-proofing.
 
 ### Human Verification Required
 
-See the `human_verification` list in the frontmatter. In short: the rider must listen for distinctness, sour notes at changes, pad smoothness and the 1-beat release overlap, cycle-end switching, glide and Stop/Start, Auto pace over about 6 minutes, Auto-picked-mid-ride behavior, and confirm the three unconfirmed planner decisions. I have not and cannot mark any of these as done.
+None. All ten UAT items passed (06-UAT.md, 10/10, 0 issues, completed 2026-10-13). Security: 06-SECURITY.md, threats_open 0.
 
 ### Gaps Summary
 
-No gaps. Every must-have is backed by code I read and a gate I re-ran (CHECK PASS, 191 pytest). The phase is waiting only on the rider's listening check, so the status is `human_needed`, not `passed`. Recommended (optional) follow-ups from the review: WR-01 reserved-name rejection, WR-02 picks counter surviving Start, WR-04 guard base.
+No gaps. Every must-have is backed by code read and a gate re-run on current HEAD (CHECK PASS, SMOKE PASS, LIBRARY PASS, 191 pytest). The phase goal is achieved.
 
 ---
 
-_Verified: 2026-10-12_
+_Verified: 2026-10-13_
 _Verifier: Claude (gsd-verifier)_
