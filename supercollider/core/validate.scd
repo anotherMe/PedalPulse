@@ -97,12 +97,29 @@
 // A bar is a non-empty Array of [note, dur, amp, legato] rows whose durs sum
 // to 4.0 within 1e-6. note is \rest, a finite Number, or a non-empty Array of
 // finite Numbers; dur and legato are finite and > 0; amp is finite, 0 to 1.
+//
+// Upper bounds (Phase 7, WR-01 of the Phase 4 review): without them a file could
+// return a "valid" bar of hundreds of thousands of rows, a legato of 100 or a
+// note of 500 and choke the engine. A bar has at most 64 rows (checked before any
+// row is looked at, so a huge Array is refused without a loop), every dur is at
+// least 1/32 beat, a legato is at most 8, a Number note and every chord note is
+// in -12..127, and a chord has at most 8 notes. The durs of a valid bar sum to 4,
+// so these caps bound one layer's overlap to 4 x 8 x 8 = 256 voice-beats per bar.
+// Legato 8, not the 4 the review suggested: the core's default pad on an 8-bar
+// chord has legato 7.2, and a cap of 4 would send a legal progression back to
+// classic's pad.
 ~ppRowsValid = { |rows|
-	var reason = nil, sum = 0, finite;
+	var reason = nil, sum = 0, finite, noteOk;
 	finite = { |x| x.isNumber and: { x.isNaN.not and: { x.abs < inf } } };
+	noteOk = { |x| (x >= -12) and: { x <= 127 } };
 	if (rows.isKindOf(Array).not or: { rows.size < 1 }) {
 		reason = "bar is not a non-empty Array of rows";
 	} {
+		if (rows.size > 64) {
+			reason = "bar has % rows, more than 64".format(rows.size);
+		};
+	};
+	if (reason.isNil) {
 		rows.do { |r, i|
 			var n = i + 1, note;
 			if (reason.isNil) {
@@ -129,6 +146,27 @@
 					};
 					if (reason.isNil and: { finite.(r[3]).not or: { r[3] <= 0 } }) {
 						reason = "row %: legato is not a number above 0".format(n);
+					};
+					// Upper bounds (WR-01); every value is known finite here.
+					if (reason.isNil and: { note.isKindOf(Array) }) {
+						if (note.size > 8) {
+							reason = "row %: chord has % notes, more than 8".format(n, note.size);
+						} {
+							note.do { |cn|
+								if (reason.isNil and: { noteOk.(cn).not }) {
+									reason = "row %: chord note % is outside -12 to 127".format(n, cn);
+								};
+							};
+						};
+					};
+					if (reason.isNil and: { (note === \rest).not and: { note.isKindOf(Array).not } and: { noteOk.(note).not } }) {
+						reason = "row %: note % is outside -12 to 127".format(n, note);
+					};
+					if (reason.isNil and: { r[1] < (1/32) }) {
+						reason = "row %: dur % is shorter than 1/32 beat".format(n, r[1]);
+					};
+					if (reason.isNil and: { r[3] > 8 }) {
+						reason = "row %: legato % is more than 8".format(n, r[3]);
 					};
 					if (reason.isNil) { sum = sum + r[1] };
 				};
