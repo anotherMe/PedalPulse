@@ -1089,6 +1089,37 @@ fork({
 			checkOk.("harmony units");
 		}.value;
 
+		// ---- Shipped rows within bounds (WR-01, D-16): server-free ----
+		// Every row the core's own pad and bass generators can return, for each
+		// chord length from 1 to 8 bars (the pad legato reaches 7.2 on an 8-bar
+		// chord), must pass the new upper bounds of ~ppRowsValid. The reviewer's
+		// suggested legato cap of 4 would have refused a legal progression's pad.
+		{
+			var req, mod, cyc, chord, nextChord, plan, rows, why;
+
+			req = { |ok, what| if (ok.not) { fail.("shipped rows within bounds", what) } };
+			mod = ~ppLibLoad.(\progressions, \anthem);
+			req.(mod.notNil, "could not load progressions/anthem");
+			cyc = ~ppHarmCycle.(\anthem, mod);
+			chord = cyc[\spans][0][\chord];
+			nextChord = cyc[\spans][1][\chord];
+			(1..8).do { |bars|
+				plan = (chord: chord, nextChord: nextChord, changesNext: true, chordBar: 0, chordBars: bars, voicing: ~ppPadHome);
+				rows = ~ppDefaultPad.(plan, ());
+				why = ~ppRowsValid.(rows);
+				req.(why.isNil, "the default pad on a % bar chord is refused: %".format(bars, why));
+			};
+			plan = (chord: chord, nextChord: nextChord, changesNext: true, chordBar: 1, chordBars: 2, voicing: ~ppPadHome);
+			why = ~ppRowsValid.(~ppDefaultPad.(plan, ()));
+			req.(why.isNil, "the default pad's silent bar is refused: %".format(why));
+			[true, false].do { |changes|
+				plan = (chord: chord, nextChord: nextChord, changesNext: changes, chordBar: 0, chordBars: 1, voicing: ~ppPadHome);
+				why = ~ppRowsValid.(~ppDefaultBass.(plan, ()));
+				req.(why.isNil, "the default bass (changesNext %) is refused: %".format(changes, why));
+			};
+			checkOk.("shipped rows within bounds");
+		}.value;
+
 		// ---- Shipped progressions (HARM-02, D-04..D-07): the real files on disk ----
 		// What every shipped progression must play, pinned by name, cycle length and
 		// (where it matters) the span of each chord. A wrong root number in a file is
@@ -2516,7 +2547,13 @@ fork({
 				good = [
 					["16 rows of a sixteenth", Array.fill(16, { [60, 0.25, 0.1, 0.5] })],
 					["4.0000005 beats", [[60, 2, 0.1, 0.5], [60, 2.0000005, 0.1, 0.5]]],
-					["a rest and a chord", [[\rest, 2, 0, 1], [[45, 48, 52], 2, 0.06, 0.9]]]
+					["a rest and a chord", [[\rest, 2, 0, 1], [[45, 48, 52], 2, 0.06, 0.9]]],
+					// WR-01 bounds (Phase 7 Plan 02): the edges themselves are allowed.
+					["64 rows of 1/16", Array.fill(64, { [60, 1/16, 0.1, 0.5] })],
+					["legato exactly 8", [[60, 4, 0.1, 8]]],
+					["notes -12 and 127", [[-12, 2, 0.1, 0.5], [127, 2, 0.1, 0.5]]],
+					["a chord of 8 notes", [[[40, 44, 47, 52, 56, 59, 64, 68], 4, 0.06, 0.9]]],
+					["a dur of exactly 1/32", [[60, 1/32, 0.1, 0.5], [60, 4 - (1/32), 0.1, 0.5]]]
 				];
 				good.do { |g|
 					r = ~ppRowsValid.(g[1]);
@@ -2531,11 +2568,23 @@ fork({
 					["a note \"x\"", [["x", 4, 0.1, 0.5]]],
 					["a row of 3 items", [[60, 4, 0.1]]],
 					["not an Array", 5],
-					["a nan dur", [[60, 0 / 0, 0.1, 0.5]]]
+					["a nan dur", [[60, 0 / 0, 0.1, 0.5]]],
+					// WR-01 bounds, each with the words its reason must contain.
+					["65 rows of 4/65", Array.fill(65, { [60, 4 / 65, 0.1, 0.5] }), "65 rows, more than 64"],
+					["400000 rows of 1e-5", Array.fill(400000, { [60, 1e-5, 0.1, 0.5] }), "more than 64"],
+					["a dur of 1/64", [[60, 1/64, 0.1, 0.5], [60, 4 - (1/64), 0.1, 0.5]], "shorter than 1/32"],
+					["legato 8.5", [[60, 4, 0.1, 8.5]], "more than 8"],
+					["note 128", [[128, 4, 0.1, 0.5]], "outside -12 to 127"],
+					["note -13", [[-13, 4, 0.1, 0.5]], "outside -12 to 127"],
+					["a chord of 9 notes", [[[40, 44, 47, 52, 56, 59, 64, 68, 71], 4, 0.06, 0.9]], "more than 8"],
+					["a chord containing 200", [[[60, 200], 4, 0.06, 0.9]], "outside -12 to 127"]
 				];
 				bad.do { |b|
 					r = ~ppRowsValid.(b[1]);
 					if (r.isKindOf(String).not) { fail.(name, "% should fail but passed".format(b[0])) };
+					if (b[2].notNil and: { r.find(b[2]).isNil }) {
+						fail.(name, "% should say \"%\" but said: %".format(b[0], b[2], r));
+					};
 				};
 				if (~ppRowsValid.([[60, 3.5, 0.1, 0.5]]).find("3.5").isNil) {
 					fail.(name, "the 3.5 beat reason does not say 3.5");
