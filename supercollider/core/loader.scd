@@ -180,7 +180,7 @@
 // never sets ~ppSel and never reloads a stem that is already registered (an
 // explicit pick does that). It is capped at 256 files and runs one at a time.
 ~ppAutoFailed = ~ppAutoFailed ? Dictionary.new;
-~ppAutoPrefetching = false;
+~ppAutoPrefetching = ~ppAutoPrefetching ? false;
 ~ppAutoPrefetch = {
 	var env;
 	if (~ppAutoPrefetching != true) {
