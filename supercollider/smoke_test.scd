@@ -1646,6 +1646,86 @@ fork({
 		checkOk.("volume glides");
 	}.value;
 
+	// --- master boost (quick 261015-uez): ~ppMasterBoost is a fixed makeup
+	// gain inside \ppMaster, applied before the -1 dBFS limiter. Proves the
+	// config range, the live wiring, the gain, and that the ceiling holds. ---
+	{
+		var scratchIn, scratchOut, scratchVol, scratchGroup;
+		var dc, masterProbe, levelProbe;
+		var liveBoost = nil, waited = 0;
+		var gainSamples, ceilSamples, gainLast, ceilLast, i;
+
+		// (a) config range: "at least double" floor, documented squash ceiling.
+		if (~ppMasterBoost.isNumber.not or: { (~ppMasterBoost < 2.0) or: { ~ppMasterBoost > 3.0 } }) {
+			fail.("master boost", "~ppMasterBoost % is not a number from 2.0 to 3.0".format(~ppMasterBoost));
+		};
+
+		// (b) live wiring: the running master really carries the boost.
+		~ppMasterSynth.get(\boost, { |v| liveBoost = v });
+		while ({ liveBoost.isNil and: { waited < 50 } }) {
+			0.02.wait;
+			waited = waited + 1;
+		};
+		if (liveBoost.isNil) {
+			fail.("master boost", "no reply from ~ppMasterSynth.get(\\boost) within 1 s");
+		};
+		if ((liveBoost - ~ppMasterBoost).abs >= 1e-4) {
+			fail.("master boost", "live boost % differs from ~ppMasterBoost %".format(liveBoost, ~ppMasterBoost));
+		};
+
+		// (c) gain probe: DC 0.5 x (0.8 / boost) x boost x volume 1.0 = 0.4.
+		scratchIn = Bus.audio(s, 2);
+		scratchOut = Bus.audio(s, 2);
+		scratchVol = Bus.control(s, 1);
+		scratchVol.set(1.0);
+		scratchGroup = Group.new(s, \addToTail);
+		dc = Synth.head(scratchGroup, \ppDcSource, [\out, scratchIn.index]);
+		masterProbe = Synth.after(dc, \ppMaster, [\in, scratchIn.index, \out, scratchOut.index, \preGain, 0.8 / ~ppMasterBoost, \boost, ~ppMasterBoost, \volumeBus, scratchVol.index]);
+		levelProbe = Synth.tail(scratchGroup, \ppLevelProbe, [\in, scratchOut.index]);
+		ctlSamples = List.new;
+		0.4.wait;
+		gainSamples = ctlSamples.copy;
+
+		// (d) ceiling probe: preGain 1 puts 0.5 x boost (>= 1.0) into the limiter.
+		masterProbe.set(\preGain, 1);
+		ctlSamples = List.new;
+		0.4.wait;
+		ceilSamples = ctlSamples.copy;
+
+		// (e) clean up before any assertion.
+		scratchGroup.free;
+		scratchIn.free;
+		scratchOut.free;
+		scratchVol.free;
+		ctlSamples = nil;
+
+		// (f) assert.
+		if (gainSamples.size < 5) {
+			fail.("master boost", "only % gain-probe samples, expected >= 5".format(gainSamples.size));
+		};
+		if (ceilSamples.size < 5) {
+			fail.("master boost", "only % ceiling-probe samples, expected >= 5".format(ceilSamples.size));
+		};
+		i = gainSamples.size - 5;
+		while ({ i < gainSamples.size }) {
+			if ((gainSamples[i][0] - 0.4).abs > 0.01) {
+				fail.("master boost", "gain-probe sample % is not within 0.01 of 0.4 (boost not applied?)".format(gainSamples[i][0]));
+			};
+			i = i + 1;
+		};
+		i = ceilSamples.size - 5;
+		while ({ i < ceilSamples.size }) {
+			if ((ceilSamples[i][0] < 0.85) or: { ceilSamples[i][0] > 0.892 }) {
+				fail.("master boost", "ceiling-probe sample % is not from 0.85 to 0.892".format(ceilSamples[i][0]));
+			};
+			i = i + 1;
+		};
+		gainLast = gainSamples.last[0];
+		ceilLast = ceilSamples.last[0];
+		"PedalPulse smoke: master boost % -- gain probe %, ceiling probe %".format(~ppMasterBoost, gainLast.round(0.001), ceilLast.round(0.001)).postln;
+		checkOk.("master boost");
+	}.value;
+
 	// --- B6: node-leak bound ---
 	{
 		var maxSynths = 0, elapsed6 = 0;

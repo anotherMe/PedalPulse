@@ -57,10 +57,24 @@ if (~ppRoot.isNil) {
 ~ppEpicLagSecs = 1.5;
 
 // GUI-03: maps the app's 0-100 volume to master gain with a squared taper
-// (100 = unity, never a boost; 80 = 0.64; 50 = 0.25), so equal slider moves
-// feel like roughly equal loudness steps; for a linear map, change only
+// (100 = 1.0, the top of the taper; 80 = 0.64; 50 = 0.25), so equal slider
+// moves feel like roughly equal loudness steps. ~ppMasterBoost (below)
+// multiplies on top of this inside \ppMaster; for a linear map, change only
 // this line.
 ~ppVolumeAmp = { |v| (v / 100).squared };
+
+// Fixed master loudness boost (makeup gain). It multiplies on top of the
+// volume taper inside \ppMaster, BEFORE the -1 dBFS limiter, so the output
+// still never clips (ENG-02, D-16). 2.5 is about +8 dB, more than the "at
+// least double" asked for in quick task 261015-uez, so PedalPulse can be
+// heard next to Zwift without turning the Mac's volume way up. At EPIC 100 +
+// volume 100 the loudest hits now reach the limiter by a few dB, which is
+// intended. To retune, edit this one line and evaluate the whole file
+// again; 1.0 is the original level. Keep it at or below 3.0: higher values
+// make the limiter flatten (pump) the loud EPIC levels, and from about 3.5
+// the smoke check "volume scales output" fails. Unlike ~preGain this is the
+// shipped default, not a debug knob; a re-evaluation re-reads it from here.
+~ppMasterBoost = 2.5;
 
 s.options.numInputBusChannels = 0;  // no mic input: avoids the macOS mic permission prompt, saves CPU
 s.options.numOutputBusChannels = 2;
@@ -109,13 +123,15 @@ s.waitForBoot({
 	if (~ppVolumeBus.notNil) { ~ppVolumeBus.free };
 	~ppRampPendingBpm = nil; ~ppRampRateBpm = 0;  // a pending target on a stopped clock can never wedge later messages
 
-	SynthDef(\ppMaster, { |in, out = 0, preGain = 1, volumeBus = 0|
+	SynthDef(\ppMaster, { |in, out = 0, preGain = 1, volumeBus = 0, boost = 1|
 		// GUI-03: volume is applied before the limiter, never after (Pitfall
 		// 1) -- it is a gain stage inside the master, exactly like preGain.
+		// boost is a fixed gain stage before the limiter too (~ppMasterBoost);
+		// its default MUST stay 1 so scratch masters that omit it are unity.
 		// The 0.2s lag de-zippers a slider release and is deliberately
 		// shorter than EPIC's musical glide (~ppEpicLagSecs).
 		var volume = Lag.kr(In.kr(volumeBus), 0.2);
-		var sig = In.ar(in, 2) * preGain * volume;
+		var sig = In.ar(in, 2) * preGain * boost * volume;
 		Out.ar(out, Limiter.ar(sig, 0.891251, 0.01));  // D-16: -1 dBFS = 10^(-1/20) ~= 0.891251
 	}).add;
 
@@ -214,7 +230,7 @@ if (~ppSel[\palettes] == \auto) { ~ppAutoPrefetch.(\palettes) };
 
 	// \ppMaster now reads ~ppFxBus (post-FX), not ~ppMixBus -- the FX chain
 	// sits between the instruments and the limiter, never bypassing it.
-	~ppMasterSynth = Synth(\ppMaster, [\in, ~ppFxBus.index, \out, 0, \preGain, ~preGain, \volumeBus, ~ppVolumeBus.index], ~ppMasterGroup);
+	~ppMasterSynth = Synth(\ppMaster, [\in, ~ppFxBus.index, \out, 0, \preGain, ~preGain, \boost, ~ppMasterBoost, \volumeBus, ~ppVolumeBus.index], ~ppMasterGroup);
 
 	// --- Clock and loop ---
 	~bpm = ~bpm ? 120;  // D-07: fresh session starts at 120; re-evaluation keeps the last applied tempo
@@ -391,7 +407,7 @@ if (~ppSel[\palettes] == \auto) { ~ppAutoPrefetch.(\palettes) };
 			~volume = raw.asFloat.clip(0, 100);
 			~ppVolumeCount = ~ppVolumeCount + 1;
 			~ppVolumeBus.set(~ppVolumeAmp.(~volume));
-			"PedalPulse: /pp/volume % -> % (gain %)".format(raw, ~volume, ~ppVolumeAmp.(~volume).round(0.001)).postln;
+			"PedalPulse: /pp/volume % -> % (gain %)".format(raw, ~volume, (~ppVolumeAmp.(~volume) * ~ppMasterBoost).round(0.001)).postln;
 		};
 	}, '/pp/volume', srcID: NetAddr("127.0.0.1", nil));
 
