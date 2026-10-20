@@ -4,12 +4,12 @@ milestone: v2.0
 milestone_name: Living Music
 current_phase: 07
 current_phase_name: Sound Palettes
-status: verifying
+status: executing
 stopped_at: Phase 07 executed (6/6 plans); verification human_needed, UAT pending
-last_updated: "2026-10-13T19:43:19.297Z"
-last_activity: 2026-10-13
+last_updated: "2026-10-20T18:22:09.609Z"
+last_activity: 2026-10-20
 last_activity_desc: Phase 07 execution started
-state_head: 2236c41dfdf1db57e8550b16c353caa9bcffa6bc
+state_head: a60dbbaf32296c3528993065fd118abaf24c96ed
 progress:
   total_phases: 6
   completed_phases: 6
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 07 (Sound Palettes) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
-Last activity: 2026-10-13 — Phase 07 execution started
+Plan: 1 of 6
+Status: Executing Phase 07
+Last activity: 2026-10-20 — Phase 07 execution started
 
 Progress: [██████████] 100% (v2.0)
 
@@ -105,6 +105,7 @@ None yet.
 
 ### Blockers/Concerns
 
+- [Phase 7, open code-review findings]: original review (07-REVIEW.md at commit 1081b38): WR-01 voice-namespace rule bypassable with a longer palette name (prefix collision), WR-02 fixed watchdogs do not scale with the library, IN-01 empty error handlers in the defs undo path, IN-02..IN-04 (still listed in 07-REVIEW-DISPOSITION.md). The 2026-10-20 re-review of quick task 261015-uez reused the ids WR-01/WR-02/IN-01 for its own findings (smoke boost range 2.0-3.0 rejects the README's 1.0, no runtime validation of ~ppMasterBoost, README wording), so the ledger replaced the original three rows; they are tracked here
 - [Phase 6, open code-review info items]: IN-01 README/template doc drift (Auto hold is 32-64 bars), IN-02 `~ppAutoHistoryCap` not retunable, IN-03 voicing Array shared by reference, IN-04 test/gate timing. See 06-REVIEW-DISPOSITION.md
 - [v2.0 research flags]: (Phase 4 flags resolved: quant 4 survives Stop/Start with doReset, plan bar equals played bar, per-bar seeding replays.) (Phase 6 flag resolved: harmony stays in step across Stop/Start and tempo glide, smoke + UAT.) Phase 7: choose the loudness reference (±1.5 dB proposed) and calibrate the CPU budget next to Zwift (~25% average proposed). Phases 8-9: melody rules, the EPIC→density curve and section lengths need listening UAT
 - [Phase 2, open code-review findings]: WR-02 `test_send_play_coerces_bool_to_int` cannot detect a missing int() coercion; IN-01 glide lands at ~7.75 beats (WR-01 BuildError catch fixed in Phase 3 plan 01). See 02-REVIEW-DISPOSITION.md
