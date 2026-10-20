@@ -122,6 +122,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 1 | Add classic_lead_loud melody (lead at arp level) for the Phase 4 listening check | 2026-10-12 | bd04c46 | — |
 | 2 | Rewrite README.md with overview and Win/Linux/macOS setup | 2026-10-13 | 1c0acda | — |
+| 3 | 2.5x master loudness boost before the limiter (`~ppMasterBoost`) | 2026-10-20 | f75fde8 | [261015-uez-increase-pedalpulse-master-output-volume](./quick/261015-uez-increase-pedalpulse-master-output-volume/) |
 
 ## Deferred Items
 
@@ -133,8 +134,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T19:43:19.224Z
-Stopped at: Phase 07 executed (6/6 plans); verification human_needed, UAT pending
+Last session: 2026-10-20
+Stopped at: Phase 07 UAT passed (3/3, confirmed by the rider); phase close blocked on stale verification (quick 261015-uez touched covered files), re-run the verifier with /gsd-execute-phase 07
 Resume file: .planning/phases/07-sound-palettes/07-UAT.md
 
 ## Operator Next Steps

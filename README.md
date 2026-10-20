@@ -105,6 +105,8 @@ Press play. Set the BPM to your target cadence, and move EPIC up (or use the zon
 
 UDP has no connection, so the app runs fine before the engine is up. Messages sent before then are just dropped.
 
+PedalPulse plays about 2.5x louder than it used to, so you can hear it next to Zwift without turning the Mac's volume way up. If it is still too quiet or too loud, open `supercollider/main.scd`, change the number on the `~ppMasterBoost = 2.5;` line (1.0 is the original level; keep it at 3.0 or below), then select the whole file and evaluate it again. A limiter keeps the sound from clipping at any setting.
+
 ## Variation library
 
 The sounds, chord progressions and melodies are plain `.scd` files under `supercollider/library/`. Each file is one named variation that you can pick from the app's dropdowns. See [supercollider/library/README.md](supercollider/library/README.md) for how to add your own.

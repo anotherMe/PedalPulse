@@ -1,7 +1,7 @@
 ---
 phase: 07-sound-palettes
 verified: 2026-10-13T20:30:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 covered_files:
   - .planning/phases/07-sound-palettes/07-01-PLAN.md
@@ -53,7 +53,7 @@ human_verification:
 
 **Phase Goal:** As a rider, I want the engine to change its whole sound set every few minutes, or keep one I like, so that a long ride never sounds the same and I can name what I want more or less of.
 **Verified:** 2026-10-13T20:30:00Z
-**Status:** human_needed
+**Status:** passed (human checks confirmed by the rider on 2026-10-20, see 07-UAT.md)
 **Re-verification:** No, initial verification
 
 ## Goal Achievement
@@ -70,7 +70,7 @@ All code-verifiable parts of the goal are present, wired and exercised by passin
 | 4 | Switching causes no noticeable volume jump; VO2 at volume 100 on the loudest palette never clips | VERIFIED (by-ear half is a human item) | Independently re-ran `bash scripts/palette_level.sh`: PALETTE PASS. RMS gap to classic at EPIC 50: acid +0.29, air +0.06, dark -0.07, pluck -0.12, supersaw +0.29, warm +0.13 dB (gate 1.5, authoring target 0.75). VO2 / volume 100 post-FX peak: classic 0.548, acid 0.556, air 0.539, dark 0.479, pluck 0.672, supersaw 0.545, warm 0.523 (gate 0.80; output equals fx peak, at or below the Limiter ceiling 0.891251 at `main.scd:119`). Extreme-note probe finite for all 6 |
 | 5 | Exit gate holds for every palette (Stop silences, nothing bypasses limiter); CPU of the heaviest palette at VO2 measured on the riding Mac and within budget for Zwift | VERIFIED for Stop/limiter; PENDING HUMAN for Zwift CPU | Smoke checks `palette stop and start` (every palette on disk, master pre-gain 0 leaves bus 0 silent, Stop empties the group within 2.5 s) and `palette re-evaluation` (Auto, no stacking) exist in `smoke_test.scd` and passed in the orchestrator's `check.sh` run (CHECK PASS). Headless CPU (re-run now): heaviest is supersaw at mean 9.69 percent, peak 13.45, gate 25. `scripts/palette_cpu.sh` exists for the rider's Zwift measurement; not yet run next to Zwift |
 
-**Score:** 5/5 truths verified in code; 3 perceptual or machine-specific confirmations pending (human).
+**Score:** 5/5 truths verified in code; the 3 perceptual and machine-specific confirmations were reported done and passing by the rider on 2026-10-20 (07-UAT.md).
 
 ### Plan-level must-haves (spot-verified)
 
