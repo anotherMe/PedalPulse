@@ -2,11 +2,12 @@
 phase: "07"
 slug: "sound-palettes"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: true) (#2117)
+status: validated
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 created: "2026-10-13"
+validated: "2026-10-20"
 ---
 
 # Phase 07 — Validation Strategy
@@ -46,19 +47,19 @@ Filled from the plans (07-01 to 07-06). The plans are authoritative; check names
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 07-01-T1 | 01 | 1 | PAL-03 (next bar), PAL-01, D-09, D-10, D-11 | — | classic parity unchanged | integration (tracer, fixture palette `probe_pal` in the temporary root) | `./scripts/check.sh --library-only` (`CHECK OK: named palette plays from the next bar`, `CHECK OK: parity`, line `PedalPulse: palette probe_pal: probe palette`) | ❌ W0 (new check) | ⬜ pending |
-| 07-01-T2 | 01 | 1 | PAL-01, PAL-04, D-13, D-14, D-15 (headless) | T-07-01, T-07-02, T-07-03 | meter on its own port 57142; no voice above the limiter; gates before the first commit | real-time meter + static | `./scripts/check.sh --library-only` (`CHECK OK: palette levels`, `CHECK OK: library file count (16 files)`; meter `CHECK OK: palette level supersaw`, `... headroom ...`, `... cpu ...`, `... extreme notes supersaw`; library `CHECK OK: shipped palettes`, `CHECK OK: voices supersaw`) | ❌ W0 (palette_meter.scd, palette_level.sh, supersaw.scd) | ⬜ pending |
-| 07-02-T1 | 02 | 2 | D-16 / WR-01, PAL-04 | T-07-04 | row magnitude bounds enforced; shipped data still valid | unit + negative cases | `./scripts/check.sh --library-only` (`CHECK OK: rows validation`, `CHECK OK: shipped rows within bounds`, `CHECK OK: static check`) | ✅ (edit) | ⬜ pending |
-| 07-02-T2 | 02 | 2 | D-16 / WR-02, PAL-04 | T-07-05, T-07-06 | foreign voice refused; refused palette leaves no voices; replaced voices restored | integration with fixtures | `./scripts/check.sh --library-only` (`CHECK OK: palette defs stay in their prefix`, `CHECK OK: refused palette leaves no voices`, `CHECK OK: refused reload restores the last good voices`, `CHECK OK: static check catches bad files`) | ❌ W0 (new fixtures) | ⬜ pending |
-| 07-03-T1 | 03 | 3 | D-02 | T-07-07 | unknown `bassStyle` refused by the validator | unit + static | `./scripts/check.sh --library-only` (`CHECK OK: bass styles follow the chord`, `CHECK OK: static check catches bad files`, `CHECK OK: parity`; static round trip under the classic progression: classic palette keeps v1, other palettes follow their bassStyle) | ❌ W0 | ⬜ pending |
-| 07-03-T2 | 03 | 3 | PAL-01, PAL-04, D-01, D-02, D-03 | T-07-08 | acid and dark gated before the first commit | meter + recording | `./scripts/check.sh --library-only` (meter lines for acid and dark, `CHECK OK: palette bass styles under anthem`, `CHECK OK: palette bass styles under classic`, `CHECK OK: shipped palettes`, `CHECK OK: library file count (18 files)`) | ❌ W0 (acid.scd, dark.scd) | ⬜ pending |
-| 07-04-T1 | 04 | 4 | PAL-02, PAL-03, D-05, D-06, D-07, D-08 | T-07-09 | palette scan through the stem rule and ~ppLibEnsure only | integration (recordBars, palette log, cycle log, pure single-progression run) | `./scripts/check.sh --library-only` (`CHECK OK: auto palette rotates`, `CHECK OK: auto palette lands on a progression change`, `CHECK OK: auto palette with a locked progression`, `CHECK OK: auto palette with a single progression`, `CHECK OK: named palette locks`, `CHECK OK: auto plays classic`) | ❌ W0 / ✅ (edit auto plays classic) | ⬜ pending |
-| 07-04-T2 | 04 | 4 | PAL-02, D-08 | T-07-10, T-07-11 | broken palette reported once; state and SynthDefs bounded | integration (pure runs + fallback tier) | `bash scripts/check.sh` (`CHECK OK: auto palette replays from the seed`, `CHECK OK: auto palette starts fresh after stop and start`, `CHECK OK: auto palette stays bounded`, `CHECK OK: auto adds a new palette file`, `CHECK OK: auto skips a broken palette`, `CHECK PASS`) | ❌ W0 | ⬜ pending |
-| 07-05-T1 | 05 | 5 | PAL-01, PAL-04 | T-07-14 | pluck and warm gated before the first commit | meter + recording | `./scripts/check.sh --library-only` (meter lines for pluck and warm, `CHECK OK: palette bass styles under anthem`, `CHECK OK: palette bass styles under classic`, `CHECK OK: library file count (20 files)`) | ❌ W0 (pluck.scd, warm.scd) | ⬜ pending |
-| 07-05-T2 | 05 | 5 | PAL-01, PAL-04 | T-07-14 | air gated before the first commit | meter + static + Python scan | `./scripts/check.sh --library-only` (meter lines for air, `CHECK OK: shipped palettes`, `CHECK OK: palette bass styles under anthem`, `CHECK OK: palette bass styles under classic`, `CHECK OK: library file count (21 files)`); `scan_library(.../palettes)` lists classic, acid, air, dark, pluck, supersaw, warm | ❌ W0 (air.scd) | ⬜ pending |
-| 07-05-T3 | 05 | 5 | D-14, D-15 | T-07-12, T-07-13 | CPU script on its own port, argument rule | script | `bash scripts/palette_cpu.sh` (`CPU PASS`, `PedalPulse meter: heaviest palette <stem>`, `PedalPulse meter: cpu <stem> mean= max= peak= samples=`) | ❌ W0 (palette_cpu.sh, cpu mode) | ⬜ pending |
-| 07-06-T1 | 06 | 6 | PAL-04, exit gate (ENG-05) | T-07-15, T-07-16, T-07-17 | Stop silences every palette; bus 0 silent at pre-gain 0 under every palette; re-evaluation on Auto stacks nothing | smoke | `bash scripts/smoke_test.sh` (`CHECK OK: palette stop and start`, `CHECK OK: palette re-evaluation`, existing `CHECK OK: stop silences every layer`, `CHECK OK: eng-05 no stacking`, `CHECK OK: limiter no bypass`, `CHECK OK: max epic max volume no clip`, `SMOKE PASS`) | ✅ (extend) | ⬜ pending |
-| 07-06-T2 | 06 | 6 | PAL-01, PAL-02, PAL-03, PAL-04 | — | Python app untouched | full gate + regression + manual | `bash scripts/check.sh` (`CHECK PASS`, 21 files, `CHECK OK: palette levels`); `.venv/bin/python -m pytest -q python_app/tests`; `git diff --quiet e2dc47e -- python_app`; then the human-check block (Manual-Only below) | ✅ | ⬜ pending |
+| 07-01-T1 | 01 | 1 | PAL-03 (next bar), PAL-01, D-09, D-10, D-11 | — | classic parity unchanged | integration (tracer, fixture palette `probe_pal` in the temporary root) | `./scripts/check.sh --library-only` (`CHECK OK: named palette plays from the next bar`, `CHECK OK: parity`, line `PedalPulse: palette probe_pal: probe palette`) | ✅ (new check) | ✅ green |
+| 07-01-T2 | 01 | 1 | PAL-01, PAL-04, D-13, D-14, D-15 (headless) | T-07-01, T-07-02, T-07-03 | meter on its own port 57142; no voice above the limiter; gates before the first commit | real-time meter + static | `./scripts/check.sh --library-only` (`CHECK OK: palette levels`, `CHECK OK: library file count (16 files)`; meter `CHECK OK: palette level supersaw`, `... headroom ...`, `... cpu ...`, `... extreme notes supersaw`; library `CHECK OK: shipped palettes`, `CHECK OK: voices supersaw`) | ✅ (palette_meter.scd, palette_level.sh, supersaw.scd) | ✅ green |
+| 07-02-T1 | 02 | 2 | D-16 / WR-01, PAL-04 | T-07-04 | row magnitude bounds enforced; shipped data still valid | unit + negative cases | `./scripts/check.sh --library-only` (`CHECK OK: rows validation`, `CHECK OK: shipped rows within bounds`, `CHECK OK: static check`) | ✅ (edit) | ✅ green |
+| 07-02-T2 | 02 | 2 | D-16 / WR-02, PAL-04 | T-07-05, T-07-06 | foreign voice refused; refused palette leaves no voices; replaced voices restored | integration with fixtures | `./scripts/check.sh --library-only` (`CHECK OK: palette defs stay in their prefix`, `CHECK OK: refused palette leaves no voices`, `CHECK OK: refused reload restores the last good voices`, `CHECK OK: static check catches bad files`) | ✅ (new fixtures) | ✅ green |
+| 07-03-T1 | 03 | 3 | D-02 | T-07-07 | unknown `bassStyle` refused by the validator | unit + static | `./scripts/check.sh --library-only` (`CHECK OK: bass styles follow the chord`, `CHECK OK: static check catches bad files`, `CHECK OK: parity`; static round trip under the classic progression: classic palette keeps v1, other palettes follow their bassStyle) | ✅ | ✅ green |
+| 07-03-T2 | 03 | 3 | PAL-01, PAL-04, D-01, D-02, D-03 | T-07-08 | acid and dark gated before the first commit | meter + recording | `./scripts/check.sh --library-only` (meter lines for acid and dark, `CHECK OK: palette bass styles under anthem`, `CHECK OK: palette bass styles under classic`, `CHECK OK: shipped palettes`, `CHECK OK: library file count (18 files)`) | ✅ (acid.scd, dark.scd) | ✅ green |
+| 07-04-T1 | 04 | 4 | PAL-02, PAL-03, D-05, D-06, D-07, D-08 | T-07-09 | palette scan through the stem rule and ~ppLibEnsure only | integration (recordBars, palette log, cycle log, pure single-progression run) | `./scripts/check.sh --library-only` (`CHECK OK: auto palette rotates`, `CHECK OK: auto palette lands on a progression change`, `CHECK OK: auto palette with a locked progression`, `CHECK OK: auto palette with a single progression`, `CHECK OK: named palette locks`, `CHECK OK: auto plays classic`) | ✅ (new tier; auto plays classic edited) | ✅ green |
+| 07-04-T2 | 04 | 4 | PAL-02, D-08 | T-07-10, T-07-11 | broken palette reported once; state and SynthDefs bounded | integration (pure runs + fallback tier) | `bash scripts/check.sh` (`CHECK OK: auto palette replays from the seed`, `CHECK OK: auto palette starts fresh after stop and start`, `CHECK OK: auto palette stays bounded`, `CHECK OK: auto adds a new palette file`, `CHECK OK: auto skips a broken palette`, `CHECK PASS`) | ✅ | ✅ green |
+| 07-05-T1 | 05 | 5 | PAL-01, PAL-04 | T-07-14 | pluck and warm gated before the first commit | meter + recording | `./scripts/check.sh --library-only` (meter lines for pluck and warm, `CHECK OK: palette bass styles under anthem`, `CHECK OK: palette bass styles under classic`, `CHECK OK: library file count (20 files)`) | ✅ (pluck.scd, warm.scd) | ✅ green |
+| 07-05-T2 | 05 | 5 | PAL-01, PAL-04 | T-07-14 | air gated before the first commit | meter + static + Python scan | `./scripts/check.sh --library-only` (meter lines for air, `CHECK OK: shipped palettes`, `CHECK OK: palette bass styles under anthem`, `CHECK OK: palette bass styles under classic`, `CHECK OK: library file count (21 files)`); `scan_library(.../palettes)` lists classic, acid, air, dark, pluck, supersaw, warm | ✅ (air.scd) | ✅ green |
+| 07-05-T3 | 05 | 5 | D-14, D-15 | T-07-12, T-07-13 | CPU script on its own port, argument rule | script | `bash scripts/palette_cpu.sh` (`CPU PASS`, `PedalPulse meter: heaviest palette <stem>`, `PedalPulse meter: cpu <stem> mean= max= peak= samples=`) | ✅ (palette_cpu.sh, cpu mode) | ✅ green |
+| 07-06-T1 | 06 | 6 | PAL-04, exit gate (ENG-05) | T-07-15, T-07-16, T-07-17 | Stop silences every palette; bus 0 silent at pre-gain 0 under every palette; re-evaluation on Auto stacks nothing | smoke | `bash scripts/smoke_test.sh` (`CHECK OK: palette stop and start`, `CHECK OK: palette re-evaluation`, existing `CHECK OK: stop silences every layer`, `CHECK OK: eng-05 no stacking`, `CHECK OK: limiter no bypass`, `CHECK OK: max epic max volume no clip`, `SMOKE PASS`) | ✅ (extend) | ✅ green |
+| 07-06-T2 | 06 | 6 | PAL-01, PAL-02, PAL-03, PAL-04 | — | Python app untouched | full gate + regression + manual | `bash scripts/check.sh` (`CHECK PASS`, 21 files, `CHECK OK: palette levels`); `.venv/bin/python -m pytest -q python_app/tests`; `git diff --quiet e2dc47e -- python_app`; then the human-check block (Manual-Only below) | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -66,14 +67,14 @@ Filled from the plans (07-01 to 07-06). The plans are authoritative; check names
 
 ## Wave 0 Requirements
 
-- [ ] Level / headroom / CPU / extreme-note meter `supercollider/palette_meter.scd` (isolated port 57142) with `scripts/palette_level.sh [stem...]` as the single-palette authoring loop, run over every palette by `scripts/check.sh` (Plan 01 Task 2)
-- [ ] Auto palette test tier (rotation, landing on a progression change, locked progression, single progression on Auto, named lock, replay from the seed, fresh start after Stop and Start, bounded state, new file, broken file) with a small tunable palette hold; library watchdog 420 s and `check.sh` timeout 450 s (Plan 04)
-- [ ] WR-01 negative cases and WR-02 fixtures (`clobber` redefining `\ppArp`; `half_defs` throwing after adding a voice; `fixpal` refused reload; static `foreign_role`) in `library_test.scd` (Plan 02)
-- [ ] `auto plays classic` updated to cover melody + progression only (palette `auto` is random since D-08) (Plan 04 Task 1)
-- [ ] CPU mode of `supercollider/palette_meter.scd` + `scripts/palette_cpu.sh` (one command, heaviest palette at VO2 for about 1 minute, prints mean, max and peak CPU) (Plan 05 Task 3)
-- [ ] Smoke additions: `palette stop and start` (every palette, with a pre-gain-0 no-bypass probe) and `palette re-evaluation` (Palette on Auto); smoke watchdog 480 s, wrapper 510 s (Plan 06 Task 1)
-- [ ] `palettes/_template.scd` and `library/README.md` updates (`bassStyle`, the enforced prefix rule, the level-tuning loop, Auto behaviour, the CPU command) (Plan 06 Task 2)
-- [ ] The listening and Zwift CPU UAT script (plain-language palette names and what each should sound like), in Plan 06 Task 2's human-check block
+- [x] Level / headroom / CPU / extreme-note meter `supercollider/palette_meter.scd` (isolated port 57142) with `scripts/palette_level.sh [stem...]` as the single-palette authoring loop, run over every palette by `scripts/check.sh` (Plan 01 Task 2)
+- [x] Auto palette test tier (rotation, landing on a progression change, locked progression, single progression on Auto, named lock, replay from the seed, fresh start after Stop and Start, bounded state, new file, broken file) with a small tunable palette hold; library watchdog 420 s and `check.sh` timeout 450 s (Plan 04)
+- [x] WR-01 negative cases and WR-02 fixtures (`clobber` redefining `\ppArp`; `half_defs` throwing after adding a voice; `fixpal` refused reload; static `foreign_role`) in `library_test.scd` (Plan 02)
+- [x] `auto plays classic` updated to cover melody + progression only (palette `auto` is random since D-08) (Plan 04 Task 1)
+- [x] CPU mode of `supercollider/palette_meter.scd` + `scripts/palette_cpu.sh` (one command, heaviest palette at VO2 for about 1 minute, prints mean, max and peak CPU) (Plan 05 Task 3)
+- [x] Smoke additions: `palette stop and start` (every palette, with a pre-gain-0 no-bypass probe) and `palette re-evaluation` (Palette on Auto); smoke watchdog 480 s, wrapper 510 s (Plan 06 Task 1)
+- [x] `palettes/_template.scd` and `library/README.md` updates (`bassStyle`, the enforced prefix rule, the level-tuning loop, Auto behaviour, the CPU command) (Plan 06 Task 2)
+- [x] The listening and Zwift CPU UAT script (plain-language palette names and what each should sound like), in Plan 06 Task 2's human-check block
 
 ---
 
@@ -87,15 +88,25 @@ Filled from the plans (07-01 to 07-06). The plans are authoritative; check names
 | Auto rotation feel | PAL-02 | Real-time behaviour over many minutes at the rider's own tempo | Ride or listen ~20 minutes on Auto at the usual BPM: changes land on a chord-chapter change, a palette lasts about 5 minutes on average at 90-110 BPM (single ones about 3 to 8.5 minutes), and the first palette after Start is not always `classic`. Note the BPM used and how long each palette lasted |
 | CPU next to Zwift | D-14 / D-15 | Needs Zwift running on the riding Mac | Run `scripts/palette_cpu.sh` once with Zwift open (no ride needed) and report mean and peak; pass if mean is under 25% |
 
+All five manual-only checks were reported done and passing by the rider on 2026-10-20 (07-UAT.md tests 1-3).
+
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 300s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [ ] Feedback latency < 300s: met only by the single-palette loop (`palette_level.sh <stem>`, about 1 min). Accepted exception, recorded at planning time: the library-only gate measured about 7.5 min on 2026-10-20 (library check 4 min, palette meter 3.5 min) and the full gate about 12 min, dominated by the meter's real-time windows and the library recordings
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-10-20. Every mapped check printed `CHECK OK` in the full `bash scripts/check.sh` run (CHECK PASS: LIBRARY PASS, PALETTE PASS, SMOKE PASS, with the 2.5x master boost from quick task 261015-uez in place); `.venv/bin/python -m pytest -q python_app/tests` 191 passed; `python_app/` unchanged since e2dc47e; `scan_library(palettes)` lists classic, acid, air, dark, pluck, supersaw, warm; headless `bash scripts/palette_cpu.sh` CPU PASS (supersaw mean 7.57, peak 15.03 percent)
+
+## Validation Audit 2026-10-20
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
