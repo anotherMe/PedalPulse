@@ -33,10 +33,10 @@ Requirements for this milestone. Each maps to roadmap phases. Research: `.planni
 
 ### Sound palettes (PAL)
 
-- [ ] **PAL-01**: At least 5 named palettes plus `classic` ship in the library. Each palette is a coherent set of lead, bass, pad, arp and drum sounds
-- [ ] **PAL-02**: In Auto mode the engine rotates palettes on its own every few minutes, switching only at section or phrase boundaries
-- [ ] **PAL-03**: Selecting a named palette locks it until Auto is selected again
-- [ ] **PAL-04**: Palettes are loudness-matched, so switching causes no noticeable volume jump and never bypasses the limiter
+- [x] **PAL-01**: At least 5 named palettes plus `classic` ship in the library. Each palette is a coherent set of lead, bass, pad, arp and drum sounds
+- [x] **PAL-02**: In Auto mode the engine rotates palettes on its own every few minutes, switching only at section or phrase boundaries
+- [x] **PAL-03**: Selecting a named palette locks it until Auto is selected again
+- [x] **PAL-04**: Palettes are loudness-matched, so switching causes no noticeable volume jump and never bypasses the limiter
 
 ### Song structure (STRU)
 
@@ -108,10 +108,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEL-02 | Phase 8 | Pending |
 | MEL-03 | Phase 8 | Pending |
 | MEL-04 | Phase 8 | Pending |
-| PAL-01 | Phase 7 | Pending |
-| PAL-02 | Phase 7 | Pending |
-| PAL-03 | Phase 7 | Pending |
-| PAL-04 | Phase 7 | Pending |
+| PAL-01 | Phase 7 | Complete |
+| PAL-02 | Phase 7 | Complete |
+| PAL-03 | Phase 7 | Complete |
+| PAL-04 | Phase 7 | Complete |
 | STRU-01 | Phase 9 | Pending |
 | STRU-02 | Phase 9 | Pending |
 | STRU-03 | Phase 9 | Pending |
