@@ -6,15 +6,15 @@ findings:
   - id: WR-01
     severity: warning
     disposition: open
-    title: "Voice-namespace rule can be bypassed with a longer palette name (prefix collision)"
+    title: "Smoke gate rejects values the README tells the user they may set"
   - id: WR-02
     severity: warning
     disposition: open
-    title: "Fixed watchdogs do not scale with the library, which grows by one file per variation"
+    title: "No runtime validation of the user-edited boost; a typo gives a full-scale blast"
   - id: IN-01
     severity: info
     disposition: open
-    title: "Empty error handlers swallow failures in the defs undo path"
+    title: "README wording is imprecise and slightly self-contradictory"
   - id: IN-02
     severity: info
     disposition: open
@@ -29,7 +29,7 @@ findings:
     title: "`smoke_test.sh` matches the pass line without anchoring"
 open: 6
 total: 6
-recorded: 2026-10-13T19:23:23.395Z
+recorded: 2026-10-20T18:39:42.448Z
 ---
 
 # Phase 07: Code Review Disposition
@@ -39,9 +39,9 @@ recorded: 2026-10-13T19:23:23.395Z
 | WR-01 | warning | open | - |
 | WR-02 | warning | open | - |
 | IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
+| IN-02 | info | open | - (not in the current review) |
+| IN-03 | info | open | - (not in the current review) |
+| IN-04 | info | open | - (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
