@@ -22,10 +22,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-13)
+See: .planning/PROJECT.md (updated 2026-10-20)
 
 **Core value:** Moving the BPM or EPIC control in the Python GUI audibly and smoothly changes the live, generated music in SuperCollider — the Python → OSC → SuperCollider chain works end to end.
-**Current focus:** Phase 07 — Sound Palettes
+**Current focus:** Phase 8 — Evolving Melodies
 
 ## Current Position
 
@@ -108,7 +108,7 @@ None yet.
 
 - [Phase 7, open code-review findings]: original review (07-REVIEW.md at commit 1081b38): WR-01 voice-namespace rule bypassable with a longer palette name (prefix collision), WR-02 fixed watchdogs do not scale with the library, IN-01 empty error handlers in the defs undo path, IN-02..IN-04 (still listed in 07-REVIEW-DISPOSITION.md). The 2026-10-20 re-review of quick task 261015-uez reused the ids WR-01/WR-02/IN-01 for its own findings (smoke boost range 2.0-3.0 rejects the README's 1.0, no runtime validation of ~ppMasterBoost, README wording), so the ledger replaced the original three rows; they are tracked here
 - [Phase 6, open code-review info items]: IN-01 README/template doc drift (Auto hold is 32-64 bars), IN-02 `~ppAutoHistoryCap` not retunable, IN-03 voicing Array shared by reference, IN-04 test/gate timing. See 06-REVIEW-DISPOSITION.md
-- [v2.0 research flags]: (Phase 4 flags resolved: quant 4 survives Stop/Start with doReset, plan bar equals played bar, per-bar seeding replays.) (Phase 6 flag resolved: harmony stays in step across Stop/Start and tempo glide, smoke + UAT.) Phase 7: choose the loudness reference (±1.5 dB proposed) and calibrate the CPU budget next to Zwift (~25% average proposed). Phases 8-9: melody rules, the EPIC→density curve and section lengths need listening UAT
+- [v2.0 research flags]: (Phase 4 flags resolved: quant 4 survives Stop/Start with doReset, plan bar equals played bar, per-bar seeding replays.) (Phase 6 flag resolved: harmony stays in step across Stop/Start and tempo glide, smoke + UAT.) (Phase 7 flag resolved: loudness gate 1.5 dB to classic, CPU budget 25% average, confirmed next to Zwift in UAT.) Phases 8-9: melody rules, the EPIC→density curve and section lengths need listening UAT
 - [Phase 2, open code-review findings]: WR-02 `test_send_play_coerces_bool_to_int` cannot detect a missing int() coercion; IN-01 glide lands at ~7.75 beats (WR-01 BuildError catch fixed in Phase 3 plan 01). See 02-REVIEW-DISPOSITION.md
 - [Phase 3, open code-review findings]: WR-01 `Debouncer.trigger()` token tracking breaks if `schedule()` fires synchronously; WR-02 `osc_client.py` CLI prints "sent" even when the send failed; IN-01 mutable default zone map; IN-02 `apply_entry()` sends before notifying. See 03-REVIEW-DISPOSITION.md; fix with `/gsd-code-review 03 --fix`
 - [Phase 2, UI review]: spacing scale inconsistent (`transport_row` pady=4 vs `nudge_row` pady=8). The "no feedback when the engine is not running" finding is accepted by design (send-only app)
@@ -138,8 +138,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 Last session: 2026-10-20
 Stopped at: Phase 07 complete, ready to plan Phase 8
-Resume file: .planning/phases/07-sound-palettes/07-UAT.md
+Resume file: None
 
 ## Operator Next Steps
 
-- Discuss Phase 7 with /gsd-discuss-phase 7, then plan it with /gsd-plan-phase 7 (revisit deferred Phase 4 WR-01/WR-02 before palettes multiply)
+- Discuss Phase 8 with /gsd-discuss-phase 8, then plan it with /gsd-plan-phase 8

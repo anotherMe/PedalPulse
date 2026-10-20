@@ -52,6 +52,7 @@ Shipped in v2.0:
 - ✓ Named, never-overwritten library files for progressions, melodies and palettes, selectable live by name over OSC (`/pp/progression`, `/pp/palette`, `/pp/melody`, loopback-only) from the next bar; a broken file is refused and the last good copy keeps playing; `bash scripts/check.sh` guards, validates every file and runs the smoke suite — Phase 4
 - ✓ GUI dropdowns for palette, progression and melody (Auto or a named item), built from the library folder and rescanned each time a dropdown opens, so new files appear without a restart; send-only, a repeat pick sends nothing, BPM keys keep working — Phase 5
 - ✓ Shared chord progression followed by bass, arp, pad and lead together, with no clashes at chord changes; `classic` plus 7 named progressions (anthem, rocker, lift, return, deep, melancholy, drama); pad voice-leading to the nearest voicing; picks switch at the end of the current cycle, and Auto rotates every 32-64 bars without an immediate repeat — Phase 6
+- ✓ Six named sound palettes plus `classic` (supersaw, acid, dark, pluck, warm, air), each level-matched to classic within 1.5 dB and gated by a headless palette meter (level, VO2 headroom, CPU, extreme notes); Auto picks a new palette every 80-128 bars on a progression change with no quick repeats, and a named pick locks until Auto; CPU next to Zwift within the 25% budget — Phase 7
 
 ### Active
 
